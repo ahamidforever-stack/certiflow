@@ -16,7 +16,7 @@ pip install -e .[dev]
 
 ```bash
 certiflow setup-office --template inputs/shoreline_template.docx \
-  --signature inputs/raw/signature.jpg --certified-stamp inputs/raw/stamp_certified.jpg \
+  --signature inputs/raw/template_signature.png --certified-stamp inputs/raw/template_stamp_certified.png \
   --office-stamp inputs/raw/stamp_office.jpg \
   --translator-id amir.gomaa --translator-name "Amir Gomaa" --out assets/shoreline
 ```

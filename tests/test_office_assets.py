@@ -77,8 +77,8 @@ def test_rtl_identifiers_render_left_to_right(source_pdf, library, tmp_path):
 def office_lib(tmp_path_factory):
     from certiflow.office_setup import setup_office
     out = tmp_path_factory.mktemp("office")
-    m = setup_office(INPUTS / "shoreline_template.docx", INPUTS / "raw/signature.jpg",
-                     INPUTS / "raw/stamp_certified.jpg", INPUTS / "raw/stamp_office.jpg", out,
+    m = setup_office(INPUTS / "shoreline_template.docx", INPUTS / "raw/template_signature.png",
+                     INPUTS / "raw/template_stamp_certified.png", INPUTS / "raw/stamp_office.jpg", out,
                      company="shoreline", translator_id="amir.gomaa", translator_name="Amir Gomaa")
     return AssetLibrary(m)
 
