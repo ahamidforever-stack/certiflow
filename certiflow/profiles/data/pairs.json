@@ -1,0 +1,7 @@
+[
+  {
+    "source": "en",
+    "target": "ar",
+    "conventions": "Follow passport spelling for names when the client supplies it."
+  }
+]

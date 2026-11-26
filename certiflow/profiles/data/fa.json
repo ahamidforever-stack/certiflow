@@ -1,0 +1,29 @@
+{
+  "code": "fa",
+  "display_name": "Persian",
+  "native_name": "فارسی",
+  "script": "Arab",
+  "direction": "rtl",
+  "word_tag": "fa-IR",
+  "font_slot": "cs",
+  "word_font": "Sakkal Majalla",
+  "pdf_font": "Noto Naskh Arabic",
+  "body_size_pt": 14,
+  "line_spacing": 1.0,
+  "digit_style": "as_source",
+  "quote_marks": [
+    "«",
+    "»"
+  ],
+  "no_foreign_script": true,
+  "ocr_pack": "fas",
+  "transliteration_standard": "common Persian rendering",
+  "name_rule": "Transliterate foreign names into Persian script.",
+  "style_guide": "Use a formal legal register. Translate faithfully and completely; never add, explain, summarise or complete text. Keep the source order and structure. Keep identifiers (ID, tax, serial and reference numbers, verification codes, URLs, emails, hashes) exactly as written. Keep dates and numbers as written in the source unless the job asks to localise them. Use formal Persian legal register. Notes: // مهر: ... // , // امضا // .",
+  "labels": {
+    "unreadable_illegible": "// ناخوانا //",
+    "unreadable_covered_by_stamp": "// ناخوانا، زیر مهر //",
+    "unreadable_truncated": "// متن در اصل ناقص است //",
+    "repeated_notes_heading": "مهرها و امضاهای مندرج در همه صفحات"
+  }
+}

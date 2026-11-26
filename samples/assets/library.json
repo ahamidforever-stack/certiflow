@@ -1,0 +1,55 @@
+{
+  "company": "sample-office",
+  "users": [
+    {
+      "id": "translator1",
+      "name": "J. Doe (sample)",
+      "role": "certified_translator",
+      "company": "sample-office"
+    },
+    {
+      "id": "reviewer1",
+      "name": "Reviewer (sample)",
+      "role": "reviewer",
+      "company": "sample-office"
+    },
+    {
+      "id": "admin",
+      "name": "Admin",
+      "role": "admin",
+      "company": "sample-office"
+    }
+  ],
+  "assets": [
+    {
+      "id": "tpl-default",
+      "name": "Sample A4 template",
+      "type": "template",
+      "path": "templates/sample_template_a4.docx"
+    },
+    {
+      "id": "stamp-cert-translator1",
+      "name": "Certified stamp (sample)",
+      "type": "stamp_certified",
+      "path": "stamps/certified_sample.png",
+      "owner_user": "translator1",
+      "width_mm": 38
+    },
+    {
+      "id": "stamp-office",
+      "name": "Office stamp (sample)",
+      "type": "stamp_office",
+      "path": "stamps/office_sample.png",
+      "owner_company": "sample-office",
+      "width_mm": 38
+    },
+    {
+      "id": "sig-translator1",
+      "name": "Signature (sample)",
+      "type": "signature",
+      "path": "signatures/translator_sample.png",
+      "owner_user": "translator1",
+      "width_mm": 32
+    }
+  ]
+}

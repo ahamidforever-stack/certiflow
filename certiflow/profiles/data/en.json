@@ -1,0 +1,22 @@
+{
+  "code": "en",
+  "display_name": "English",
+  "native_name": "English",
+  "script": "Latn",
+  "direction": "ltr",
+  "word_tag": "en-GB",
+  "font_slot": "ascii",
+  "word_font": "Times New Roman",
+  "pdf_font": "Liberation Serif",
+  "body_size_pt": 12,
+  "transliteration_standard": "BGN/PCGN for Cyrillic and Persian; common English rendering for Arabic names, following the passport spelling when it appears in the document",
+  "name_rule": "When the source is in Latin script, keep names exactly as written. Otherwise transliterate, preferring any Latin spelling that appears in the document itself (passport, MRZ).",
+  "ocr_pack": "eng",
+  "style_guide": "Use a formal legal register. Translate faithfully and completely; never add, explain, summarise or complete text. Keep the source order and structure. Keep identifiers (ID, tax, serial and reference numbers, verification codes, URLs, emails, hashes) exactly as written. Keep dates and numbers as written in the source unless the job asks to localise them. Use British legal English as used in UAE certified translations. Describe stamps as // Stamp: ... // , seals as // Seal: ... // , signatures as // Signature // , handwriting as // Handwritten: ... // , including legible text, numbers, colour and shape.",
+  "labels": {
+    "unreadable_illegible": "// illegible //",
+    "unreadable_covered_by_stamp": "// unclear, covered by stamp //",
+    "unreadable_truncated": "// text truncated in the original //",
+    "repeated_notes_heading": "Stamps and signatures appearing on all pages"
+  }
+}

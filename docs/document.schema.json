@@ -1,0 +1,709 @@
+{
+  "$defs": {
+    "Block": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/BlockType"
+        },
+        "source_page": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Page"
+        },
+        "source_text": {
+          "default": "",
+          "title": "Source Text",
+          "type": "string"
+        },
+        "translated_text": {
+          "default": "",
+          "title": "Translated Text",
+          "type": "string"
+        },
+        "runs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/InlineRun"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runs"
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Direction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "$ref": "#/$defs/BlockStatus",
+          "default": "draft"
+        },
+        "confidence": {
+          "default": 1.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "flags": {
+          "items": {
+            "$ref": "#/$defs/Flag"
+          },
+          "title": "Flags",
+          "type": "array"
+        },
+        "history": {
+          "items": {
+            "$ref": "#/$defs/HistoryEntry"
+          },
+          "title": "History",
+          "type": "array"
+        },
+        "layout": {
+          "$ref": "#/$defs/Layout"
+        },
+        "level": {
+          "default": 1,
+          "maximum": 6,
+          "minimum": 1,
+          "title": "Level",
+          "type": "integer"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/TableRow"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "column_widths": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Column Widths"
+        },
+        "note_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NoteKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "note_scope": {
+          "default": "inline",
+          "enum": [
+            "inline",
+            "page_end",
+            "document_end"
+          ],
+          "title": "Note Scope",
+          "type": "string"
+        },
+        "unreadable_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnreadableReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "multilingual_duplicate": {
+          "default": false,
+          "title": "Multilingual Duplicate",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "Block",
+      "type": "object"
+    },
+    "BlockStatus": {
+      "enum": [
+        "draft",
+        "translated",
+        "proofread",
+        "qa_passed",
+        "needs_review",
+        "approved"
+      ],
+      "title": "BlockStatus",
+      "type": "string"
+    },
+    "BlockType": {
+      "enum": [
+        "heading",
+        "paragraph",
+        "numbered_item",
+        "bullet",
+        "table",
+        "kv_table",
+        "note",
+        "page_break",
+        "signature_block",
+        "unreadable"
+      ],
+      "title": "BlockType",
+      "type": "string"
+    },
+    "Direction": {
+      "enum": [
+        "ltr",
+        "rtl"
+      ],
+      "title": "Direction",
+      "type": "string"
+    },
+    "Flag": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity",
+          "default": "minor"
+        },
+        "message": {
+          "default": "",
+          "title": "Message",
+          "type": "string"
+        },
+        "agent": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent"
+        },
+        "resolved": {
+          "default": false,
+          "title": "Resolved",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "Flag",
+      "type": "object"
+    },
+    "GlossaryEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "kind": {
+          "default": "term",
+          "enum": [
+            "name",
+            "acronym",
+            "term",
+            "organisation",
+            "place"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "confirmed": {
+          "default": false,
+          "title": "Confirmed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ],
+      "title": "GlossaryEntry",
+      "type": "object"
+    },
+    "HistoryEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "actor": {
+          "title": "Actor",
+          "type": "string"
+        },
+        "field": {
+          "default": "translated_text",
+          "title": "Field",
+          "type": "string"
+        },
+        "old": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Old"
+        },
+        "new": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "New"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor"
+      ],
+      "title": "HistoryEntry",
+      "type": "object"
+    },
+    "InlineRun": {
+      "additionalProperties": false,
+      "description": "A piece of translated text. Non-`text` runs are isolated by the Builder\n(bidi isolation when they run against the paragraph direction).",
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/RunKind",
+          "default": "text"
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Direction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "bold": {
+          "default": false,
+          "title": "Bold",
+          "type": "boolean"
+        },
+        "italic": {
+          "default": false,
+          "title": "Italic",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "InlineRun",
+      "type": "object"
+    },
+    "Layout": {
+      "additionalProperties": false,
+      "description": "Formatter output: presentation hints only, never content.",
+      "properties": {
+        "align": {
+          "anyOf": [
+            {
+              "enum": [
+                "start",
+                "center",
+                "end",
+                "justify"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Align"
+        },
+        "bold": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bold"
+        },
+        "font_scale": {
+          "default": 1.0,
+          "title": "Font Scale",
+          "type": "number"
+        },
+        "keep_with_next": {
+          "default": false,
+          "title": "Keep With Next",
+          "type": "boolean"
+        },
+        "space_before_pt": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Space Before Pt"
+        },
+        "space_after_pt": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Space After Pt"
+        },
+        "indent_level": {
+          "default": 0,
+          "title": "Indent Level",
+          "type": "integer"
+        }
+      },
+      "title": "Layout",
+      "type": "object"
+    },
+    "NoteKind": {
+      "enum": [
+        "stamp",
+        "seal",
+        "signature",
+        "hologram",
+        "revenue_stamp",
+        "barcode",
+        "qr_code",
+        "logo",
+        "photo",
+        "handwriting",
+        "other"
+      ],
+      "title": "NoteKind",
+      "type": "string"
+    },
+    "PageInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "number": {
+          "title": "Number",
+          "type": "integer"
+        },
+        "languages": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Languages",
+          "type": "array"
+        },
+        "orientation": {
+          "default": "portrait",
+          "enum": [
+            "portrait",
+            "landscape"
+          ],
+          "title": "Orientation",
+          "type": "string"
+        },
+        "rotation": {
+          "default": 0,
+          "title": "Rotation",
+          "type": "integer"
+        },
+        "has_stamp": {
+          "default": false,
+          "title": "Has Stamp",
+          "type": "boolean"
+        },
+        "has_signature": {
+          "default": false,
+          "title": "Has Signature",
+          "type": "boolean"
+        },
+        "has_handwriting": {
+          "default": false,
+          "title": "Has Handwriting",
+          "type": "boolean"
+        },
+        "has_table": {
+          "default": false,
+          "title": "Has Table",
+          "type": "boolean"
+        },
+        "ocr_confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ocr Confidence"
+        }
+      },
+      "required": [
+        "number"
+      ],
+      "title": "PageInfo",
+      "type": "object"
+    },
+    "RunKind": {
+      "enum": [
+        "text",
+        "identifier",
+        "number",
+        "date",
+        "email",
+        "url",
+        "name"
+      ],
+      "title": "RunKind",
+      "type": "string"
+    },
+    "Severity": {
+      "enum": [
+        "blocker",
+        "major",
+        "minor",
+        "info"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "TableCell": {
+      "additionalProperties": false,
+      "properties": {
+        "source_text": {
+          "default": "",
+          "title": "Source Text",
+          "type": "string"
+        },
+        "translated_text": {
+          "default": "",
+          "title": "Translated Text",
+          "type": "string"
+        },
+        "runs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/InlineRun"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runs"
+        },
+        "header": {
+          "default": false,
+          "title": "Header",
+          "type": "boolean"
+        },
+        "colspan": {
+          "default": 1,
+          "title": "Colspan",
+          "type": "integer"
+        },
+        "bold": {
+          "default": false,
+          "title": "Bold",
+          "type": "boolean"
+        }
+      },
+      "title": "TableCell",
+      "type": "object"
+    },
+    "TableRow": {
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "items": {
+            "$ref": "#/$defs/TableCell"
+          },
+          "title": "Cells",
+          "type": "array"
+        },
+        "header": {
+          "default": false,
+          "title": "Header",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cells"
+      ],
+      "title": "TableRow",
+      "type": "object"
+    },
+    "UnreadableReason": {
+      "enum": [
+        "illegible",
+        "covered_by_stamp",
+        "truncated"
+      ],
+      "title": "UnreadableReason",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "source_language": {
+      "title": "Source Language",
+      "type": "string"
+    },
+    "target_language": {
+      "title": "Target Language",
+      "type": "string"
+    },
+    "document_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Document Type"
+    },
+    "pages": {
+      "items": {
+        "$ref": "#/$defs/PageInfo"
+      },
+      "title": "Pages",
+      "type": "array"
+    },
+    "glossary": {
+      "items": {
+        "$ref": "#/$defs/GlossaryEntry"
+      },
+      "title": "Glossary",
+      "type": "array"
+    },
+    "blocks": {
+      "items": {
+        "$ref": "#/$defs/Block"
+      },
+      "title": "Blocks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "source_language",
+    "target_language",
+    "blocks"
+  ],
+  "title": "Document",
+  "type": "object"
+}

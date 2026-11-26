@@ -1,0 +1,68 @@
+{
+  "id": "sample-en-ar-001",
+  "title": "Certificate of Good Standing",
+  "source_language": "en",
+  "target_language": "ar",
+  "document_type": "company_certificate",
+  "pages": [
+    {"number": 1, "languages": ["en"], "has_stamp": true},
+    {"number": 2, "languages": ["en"], "orientation": "landscape", "has_stamp": true, "has_table": true}
+  ],
+  "glossary": [
+    {"source": "Blue Harbour Trading LLC", "target": "بلو هاربر للتجارة ش.ذ.م.م", "kind": "organisation", "confirmed": true},
+    {"source": "LLC", "target": "ش.ذ.م.م", "kind": "acronym", "confirmed": true}
+  ],
+  "blocks": [
+    {"id": "b1", "type": "heading", "source_page": 1, "level": 1,
+     "source_text": "CERTIFICATE OF GOOD STANDING (SAMPLE)",
+     "translated_text": "شهادة حسن الوضع القانوني (نموذج)"},
+    {"id": "b2", "type": "kv_table", "source_page": 1,
+     "rows": [
+       {"cells": [{"source_text": "Company name", "translated_text": "اسم الشركة"},
+                  {"source_text": "Blue Harbour Trading LLC", "translated_text": "بلو هاربر للتجارة ش.ذ.م.م"}]},
+       {"cells": [{"source_text": "Registration No.", "translated_text": "رقم التسجيل"},
+                  {"source_text": "CN-1234567", "translated_text": "CN-1234567"}]},
+       {"cells": [{"source_text": "Date of incorporation", "translated_text": "تاريخ التأسيس"},
+                  {"source_text": "14/03/2019", "translated_text": "14/03/2019"}]},
+       {"cells": [{"source_text": "Registered address", "translated_text": "العنوان المسجل"},
+                  {"source_text": "Office 1204, Marina Plaza, Dubai", "translated_text": "مكتب 1204، مارينا بلازا، دبي"}]}
+     ]},
+    {"id": "b3", "type": "paragraph", "source_page": 1,
+     "source_text": "This is to certify that the above company is duly registered and is in good standing as of 02/11/2026.",
+     "translated_text": "نشهد بأن الشركة المذكورة أعلاه مسجلة حسب الأصول ووضعها القانوني سليم كما في تاريخ 02/11/2026."},
+    {"id": "b4", "type": "paragraph", "source_page": 1,
+     "source_text": "Verification code: 7F3A-91BC-22D0",
+     "translated_text": "رمز التحقق: 7F3A-91BC-22D0"},
+    {"id": "b5", "type": "paragraph", "source_page": 1,
+     "source_text": "Contact: registry@example.invalid",
+     "translated_text": "للتواصل: registry@example.invalid"},
+    {"id": "b6", "type": "signature_block", "source_page": 1,
+     "source_text": "Registrar: John A. Smith",
+     "translated_text": "المسجل: جون إيه. سميث\n// توقيع //"},
+    {"id": "b7", "type": "note", "source_page": 1, "note_kind": "stamp", "note_scope": "document_end",
+     "source_text": "[oval stamp: REGISTRY]",
+     "translated_text": "ختم بيضاوي باللون الأحمر نصه: السجل"},
+    {"id": "b8", "type": "heading", "source_page": 2, "level": 2,
+     "source_text": "SCHEDULE OF SHAREHOLDERS (SAMPLE)",
+     "translated_text": "جدول المساهمين (نموذج)"},
+    {"id": "b9", "type": "table", "source_page": 2, "column_widths": [0.08, 0.42, 0.32, 0.18],
+     "rows": [
+       {"header": true, "cells": [{"translated_text": "م"}, {"translated_text": "الاسم"},
+                                  {"translated_text": "جواز السفر"}, {"translated_text": "النسبة"}]},
+       {"cells": [{"source_text": "1.", "translated_text": "1"},
+                  {"source_text": "Ahmed Hassan Ali", "translated_text": "أحمد حسن علي"},
+                  {"source_text": "Passport P1234567", "translated_text": "جواز سفر رقم P1234567"},
+                  {"source_text": "60%", "translated_text": "60%"}]},
+       {"cells": [{"source_text": "2.", "translated_text": "2"},
+                  {"source_text": "Maria Lopez Garcia", "translated_text": "ماريا لوبيز غارسيا"},
+                  {"source_text": "Passport X7654321", "translated_text": "جواز سفر رقم X7654321"},
+                  {"source_text": "40%", "translated_text": "40%"}]}
+     ]},
+    {"id": "b10", "type": "paragraph", "source_page": 2,
+     "source_text": "Issued at Dubai on 02/11/2026. Ref: REG/2026/00451",
+     "translated_text": "حررت في دبي بتاريخ 02/11/2026. المرجع: REG/2026/00451"},
+    {"id": "b11", "type": "note", "source_page": 2, "note_kind": "stamp", "note_scope": "document_end",
+     "source_text": "[oval stamp: REGISTRY]",
+     "translated_text": "ختم بيضاوي باللون الأحمر نصه: السجل"}
+  ]
+}

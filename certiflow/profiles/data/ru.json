@@ -1,0 +1,25 @@
+{
+  "code": "ru",
+  "display_name": "Russian",
+  "native_name": "Русский",
+  "script": "Cyrl",
+  "direction": "ltr",
+  "word_tag": "ru-RU",
+  "font_slot": "ascii",
+  "word_font": "Times New Roman",
+  "pdf_font": "Liberation Serif",
+  "quote_marks": [
+    "«",
+    "»"
+  ],
+  "ocr_pack": "rus",
+  "transliteration_standard": "GOST 7.79-2000 (System B) for Latin to Cyrillic practical transcription",
+  "name_rule": "Transcribe foreign names into Cyrillic using established practical transcription.",
+  "style_guide": "Use a formal legal register. Translate faithfully and completely; never add, explain, summarise or complete text. Keep the source order and structure. Keep identifiers (ID, tax, serial and reference numbers, verification codes, URLs, emails, hashes) exactly as written. Keep dates and numbers as written in the source unless the job asks to localise them. Use Russian official-document register. Notes: // Печать: ... // , // Подпись // .",
+  "labels": {
+    "unreadable_illegible": "// неразборчиво //",
+    "unreadable_covered_by_stamp": "// неразборчиво, закрыто печатью //",
+    "unreadable_truncated": "// текст в оригинале обрезан //",
+    "repeated_notes_heading": "Печати и подписи на всех страницах"
+  }
+}

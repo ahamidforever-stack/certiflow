@@ -1,0 +1,31 @@
+{
+  "id": "sample-ar-en-001",
+  "title": "Good Conduct Certificate",
+  "source_language": "ar",
+  "target_language": "en",
+  "document_type": "police_clearance",
+  "pages": [{"number": 1, "languages": ["ar"]}],
+  "blocks": [
+    {"id": "b1", "type": "heading", "source_page": 1, "level": 1,
+     "source_text": "شهادة حسن سيرة وسلوك (نموذج)",
+     "translated_text": "Good Conduct Certificate (Sample)"},
+    {"id": "b2", "type": "kv_table", "source_page": 1,
+     "rows": [
+       {"cells": [{"source_text": "الاسم", "translated_text": "Name"},
+                  {"source_text": "خالد محمد العلي", "translated_text": "Khalid Mohammed Al Ali"}]},
+       {"cells": [{"source_text": "رقم الهوية", "translated_text": "ID No."},
+                  {"source_text": "784-1990-1234567-1", "translated_text": "784-1990-1234567-1"}]},
+       {"cells": [{"source_text": "تاريخ الإصدار", "translated_text": "Date of Issue"},
+                  {"source_text": "05/10/2026", "translated_text": "05/10/2026"}]}
+     ]},
+    {"id": "b3", "type": "paragraph", "source_page": 1,
+     "source_text": "تشهد الإدارة بأن المذكور أعلاه لا توجد عليه أية سوابق.",
+     "translated_text": "The Department certifies that the above-named person has no criminal record."},
+    {"id": "b4", "type": "signature_block", "source_page": 1,
+     "source_text": "المدير العام",
+     "translated_text": "Director General\n// Signature //"},
+    {"id": "b5", "type": "unreadable", "source_page": 1, "unreadable_reason": "covered_by_stamp",
+     "source_text": "", "translated_text": "",
+     "flags": [{"code": "covered_by_stamp", "severity": "minor", "message": "line under the round seal"}]}
+  ]
+}

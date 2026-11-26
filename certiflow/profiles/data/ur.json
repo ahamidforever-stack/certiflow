@@ -1,0 +1,27 @@
+{
+  "code": "ur",
+  "display_name": "Urdu",
+  "native_name": "اردو",
+  "script": "Arab",
+  "direction": "rtl",
+  "word_tag": "ur-PK",
+  "font_slot": "cs",
+  "word_font": "Urdu Typesetting",
+  "pdf_font": "Noto Nastaliq Urdu",
+  "body_size_pt": 14,
+  "line_spacing": 1.3,
+  "quote_marks": [
+    "“",
+    "”"
+  ],
+  "no_foreign_script": true,
+  "ocr_pack": "urd",
+  "name_rule": "Transliterate foreign names into Urdu script.",
+  "style_guide": "Use a formal legal register. Translate faithfully and completely; never add, explain, summarise or complete text. Keep the source order and structure. Keep identifiers (ID, tax, serial and reference numbers, verification codes, URLs, emails, hashes) exactly as written. Keep dates and numbers as written in the source unless the job asks to localise them. Use formal Urdu legal register. Notes: // مہر: ... // , // دستخط // .",
+  "labels": {
+    "unreadable_illegible": "// ناقابل مطالعہ //",
+    "unreadable_covered_by_stamp": "// ناقابل مطالعہ، مہر کے نیچے //",
+    "unreadable_truncated": "// اصل میں متن نامکمل //",
+    "repeated_notes_heading": "تمام صفحات پر موجود مہریں اور دستخط"
+  }
+}

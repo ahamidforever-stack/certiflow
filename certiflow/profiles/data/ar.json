@@ -1,0 +1,31 @@
+{
+  "code": "ar",
+  "display_name": "Arabic",
+  "native_name": "العربية",
+  "script": "Arab",
+  "direction": "rtl",
+  "word_tag": "ar-AE",
+  "font_slot": "cs",
+  "word_font": "Sakkal Majalla",
+  "pdf_font": "Amiri",
+  "body_size_pt": 14,
+  "heading_scale": 1.2,
+  "line_spacing": 1.0,
+  "digit_style": "as_source",
+  "quote_marks": [
+    "«",
+    "»"
+  ],
+  "transliteration_standard": "common Arabic rendering (UAE official usage where known)",
+  "name_rule": "Transliterate names of people, companies, streets and places into Arabic script. Use the glossary rendering when one exists so a name is always written the same way.",
+  "no_foreign_script": true,
+  "ocr_pack": "ara",
+  "vision_notes": "Check diacritics-free OCR output against the image; stamps are often blue ovals with curved text.",
+  "style_guide": "Use a formal legal register. Translate faithfully and completely; never add, explain, summarise or complete text. Keep the source order and structure. Keep identifiers (ID, tax, serial and reference numbers, verification codes, URLs, emails, hashes) exactly as written. Keep dates and numbers as written in the source unless the job asks to localise them. Write Modern Standard Arabic in the register of UAE courts and notaries. Do not leave any Latin-script text next to the Arabic except identifiers. Describe stamps as // ختم ... // , seals as // خاتم ... // , signatures as // توقيع // , handwriting as // بخط اليد: ... // . Use common legal formulae: «حرر في» for 'done at', «صورة طبق الأصل» for 'true copy', «الموقع أدناه» for 'the undersigned'.",
+  "labels": {
+    "unreadable_illegible": "// غير مقروء //",
+    "unreadable_covered_by_stamp": "// غير واضح بسبب الختم //",
+    "unreadable_truncated": "// النص مبتور في الأصل //",
+    "repeated_notes_heading": "الأختام والتواقيع الواردة في جميع الصفحات"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "code": "ko",
+  "display_name": "Korean",
+  "native_name": "한국어",
+  "script": "Kore",
+  "direction": "ltr",
+  "word_tag": "ko-KR",
+  "font_slot": "eastAsia",
+  "word_font": "Batang",
+  "pdf_font": "Noto Serif CJK KR",
+  "body_size_pt": 11,
+  "quote_marks": [
+    "“",
+    "”"
+  ],
+  "ocr_pack": "kor",
+  "name_rule": "Write foreign names in Hangul (Korean loanword orthography).",
+  "style_guide": "Use a formal legal register. Translate faithfully and completely; never add, explain, summarise or complete text. Keep the source order and structure. Keep identifiers (ID, tax, serial and reference numbers, verification codes, URLs, emails, hashes) exactly as written. Keep dates and numbers as written in the source unless the job asks to localise them. Use formal Korean legal register. Notes: // 직인: ... // , // 서명 // .",
+  "labels": {
+    "unreadable_illegible": "// 판독 불가 //",
+    "unreadable_covered_by_stamp": "// 직인에 가려 판독 불가 //",
+    "unreadable_truncated": "// 원문 잘림 //",
+    "repeated_notes_heading": "모든 페이지에 있는 직인 및 서명"
+  }
+}

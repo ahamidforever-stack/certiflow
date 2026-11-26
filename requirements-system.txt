@@ -1,0 +1,5 @@
+# System packages needed by the Builder (installed in the Docker image in Phase 5)
+libreoffice-writer
+poppler-utils
+tesseract-ocr tesseract-ocr-ara tesseract-ocr-eng (+ one pack per language profile)
+fonts-hosny-amiri fonts-noto-core fonts-noto-cjk fonts-liberation

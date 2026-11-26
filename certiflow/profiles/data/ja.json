@@ -1,0 +1,25 @@
+{
+  "code": "ja",
+  "display_name": "Japanese",
+  "native_name": "日本語",
+  "script": "Jpan",
+  "direction": "ltr",
+  "word_tag": "ja-JP",
+  "font_slot": "eastAsia",
+  "word_font": "MS Mincho",
+  "pdf_font": "Noto Serif CJK JP",
+  "body_size_pt": 11,
+  "quote_marks": [
+    "「",
+    "」"
+  ],
+  "ocr_pack": "jpn",
+  "name_rule": "Write foreign names in katakana.",
+  "style_guide": "Use a formal legal register. Translate faithfully and completely; never add, explain, summarise or complete text. Keep the source order and structure. Keep identifiers (ID, tax, serial and reference numbers, verification codes, URLs, emails, hashes) exactly as written. Keep dates and numbers as written in the source unless the job asks to localise them. Use formal Japanese legal register (である調). Notes: // 印：... // , // 署名 // .",
+  "labels": {
+    "unreadable_illegible": "// 判読不能 //",
+    "unreadable_covered_by_stamp": "// 印影により判読不能 //",
+    "unreadable_truncated": "// 原文が途切れている //",
+    "repeated_notes_heading": "全ページに押印・署名されているもの"
+  }
+}
