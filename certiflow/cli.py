@@ -86,6 +86,16 @@ def cmd_samples(args) -> int:
     return 0
 
 
+def cmd_setup_office(args) -> int:
+    from .office_setup import setup_office
+    m = setup_office(Path(args.template), Path(args.signature), Path(args.certified_stamp), Path(args.office_stamp),
+                     Path(args.out), company=args.company, translator_id=args.translator_id,
+                     translator_name=args.translator_name, certified_width_mm=args.certified_width_mm,
+                     office_width_mm=args.office_width_mm, signature_width_mm=args.signature_width_mm)
+    print(Path(m).read_text("utf-8"))
+    return 0
+
+
 def cmd_schema(args) -> int:
     s = json.dumps(Document.model_json_schema(), indent=2)
     if args.out:
@@ -137,6 +147,15 @@ def main(argv=None) -> int:
     s = sub.add_parser("samples")
     s.add_argument("out")
     s.set_defaults(fn=cmd_samples)
+
+    so = sub.add_parser("setup-office", help="register template, stamps and signature from raw scans")
+    for a in ("--template", "--signature", "--certified-stamp", "--office-stamp", "--out", "--translator-id",
+              "--translator-name"):
+        so.add_argument(a, required=True)
+    so.add_argument("--company", default="shoreline")
+    for a in ("--certified-width-mm", "--office-width-mm", "--signature-width-mm"):
+        so.add_argument(a, type=float)
+    so.set_defaults(fn=cmd_setup_office)
 
     sc = sub.add_parser("schema")
     sc.add_argument("out", nargs="?")

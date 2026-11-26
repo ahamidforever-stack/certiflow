@@ -29,6 +29,8 @@ class Asset(BaseModel):
     width_mm: Optional[float] = None         # physical print width (stamps, signatures)
     language: Optional[str] = None           # templates: bound target language
     pair: Optional[str] = None               # templates: bound pair "en>ar"
+    seal_layout: Optional[dict] = None       # templates: {"stamp": {cx_mm, cy_mm}, "signature": {...}} from import
+    strip_footer_images: list[str] = Field(default_factory=list)  # templates: sha1 of baked-in seal images
 
 
 class User(BaseModel):

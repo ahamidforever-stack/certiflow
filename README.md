@@ -12,6 +12,20 @@ pip install -e .[dev]
 # system: LibreOffice, poppler-utils, tesseract + language packs, fonts (Amiri, Noto, Liberation) - see requirements-system.txt
 ```
 
+## Office setup (real template, stamps, signature)
+
+```bash
+certiflow setup-office --template inputs/shoreline_template.docx \
+  --signature inputs/raw/signature.jpg --certified-stamp inputs/raw/stamp_certified.jpg \
+  --office-stamp inputs/raw/stamp_office.jpg \
+  --translator-id amir.gomaa --translator-name "Amir Gomaa" --out assets/shoreline
+```
+
+This removes the paper background from the scans (transparent PNG, ink colour kept, specks and scanner lines dropped).
+It also finds the signature and stamp already placed in the template's footer, measures their position, and records it.
+On build, those baked-in images are removed. The job's chosen stamp and the translator's signature are then placed at that
+position on every page (odd and even), never above the bottom margin. `inputs/` and `assets/` are git-ignored.
+
 ## Try it
 
 ```bash

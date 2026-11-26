@@ -4,3 +4,6 @@ __pycache__/
 out/
 *.egg-info/
 .env
+# client assets: confidential, never committed (stamps, signatures, templates, source documents)
+inputs/
+assets/

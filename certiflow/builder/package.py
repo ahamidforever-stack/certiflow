@@ -15,7 +15,8 @@ from ..model import BlockType, Document, JobSpec, PageInfo
 from ..profiles import get_profile
 from .docx_builder import BuildOptions, SealSpec, render
 from .pdf_builder import (BuildError, docx_to_pdf, find_seal_on_page, merge, page_size, rasterize_source,
-                          stamp_source_pages, upright, verify_certified_pdf)
+                          stamp_source_pages, text_seal_overlaps, upright,
+                          verify_certified_pdf)
 
 
 class ReleaseBlocked(BuildError):
@@ -46,7 +47,8 @@ def build_package(model: Document, source: Path, job: JobSpec, library: AssetLib
     stamp, sig = library.stamp_for(job.stamp, job.user_id)
     tpl = library.template_for(model.target_language, model.source_language, job.template_id)
     seal = SealSpec(stamp_png=library.path(stamp), signature_png=library.path(sig),
-                    stamp_width_mm=stamp.width_mm or 38.0, signature_width_mm=sig.width_mm or 32.0)
+                    stamp_width_mm=stamp.width_mm or 38.0, signature_width_mm=sig.width_mm or 32.0,
+                    layout=tpl.seal_layout, strip_images=tpl.strip_footer_images)
     tgt = get_profile(model.target_language)
     base = f"{index:02d}_{safe_title(model.title)}_{tgt.code.upper()}"
     outdir.mkdir(parents=True, exist_ok=True)
@@ -61,6 +63,9 @@ def build_package(model: Document, source: Path, job: JobSpec, library: AssetLib
                           BuildOptions(font_mode="pdf", seal=seal, page_order=job.pdf_page_order))
         tr_pdf = docx_to_pdf(pdf_docx, td / "tr")
         n_tr = len(_reader(tr_pdf).pages)
+        overlaps = text_seal_overlaps(tr_pdf, seal)
+        if overlaps:
+            raise ReleaseBlocked("translation text runs under the seal: " + "; ".join(overlaps[:5]))
         footer = find_seal_on_page(tr_pdf, 0, seal)
         if footer is None:
             raise BuildError("could not locate the seal in the translation footer")
