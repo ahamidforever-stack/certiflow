@@ -24,7 +24,12 @@ certiflow fonts status
 Zip attachments may not reach the session. The user then attaches the loose files: the template (`Source_templete.docx`),
 three JPGs (signature, certified stamp with the translator's name and licence 659, office stamp "DUBAI - U.A.E."),
 `majalla.ttf`, and the approved samples (`*_AR.docx` and `*_AR.pdf`). Find them under `/root/.claude/uploads/`, look at
-the three images to tell them apart, then rebuild the office setup:
+the three images to tell them apart, then rebuild the office setup.
+
+The files are numbered: `01_template_Shoreline.docx`, `02_signature.jpg`, `03_stamp_certified.jpg`, `04_stamp_office.jpg`,
+`05_majalla.ttf`, `06_sample1_email_thread_AR.docx` (case 01), `07_`/`08_sample2_treatment_records_AR.docx/.pdf`
+(case 02), and `09_`/`10_sample3_cctv_report_AR.docx/.pdf` (case 03). The same files may also come as
+`office_files_all.zip`.
 ```bash
 mkdir -p inputs/raw assets/fonts inputs/golden_set/en-ar/{01_cctv_email_thread,02_treatment_records,03_cctv_service_report}
 cp <template>.docx inputs/shoreline_template.docx
