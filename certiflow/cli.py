@@ -118,6 +118,18 @@ def cmd_golden(args) -> int:
     return 1 if bad else 0
 
 
+def cmd_fonts(args) -> int:
+    from .fonts import FONT_DIR, available, install
+    from .profiles import all_profiles
+    if args.action == "install":
+        print("installed:", ", ".join(install(Path(args.dir))), "->", FONT_DIR)
+    for p in all_profiles():
+        ok = available(p.pdf_font)
+        used = p.pdf_font if ok or not p.pdf_font_fallback else p.pdf_font_fallback
+        print(f"{p.code:3} pdf font {p.pdf_font:22} {'installed' if ok else 'MISSING':9} -> PDF uses {used}")
+    return 0
+
+
 def cmd_schema(args) -> int:
     s = json.dumps(Document.model_json_schema(), indent=2)
     if args.out:
@@ -190,6 +202,11 @@ def main(argv=None) -> int:
     gd.add_argument("--user")
     gd.add_argument("--out", default="out/golden_run")
     gd.set_defaults(fn=cmd_golden)
+
+    fo = sub.add_parser("fonts", help="install licensed office fonts / show which PDF font each language uses")
+    fo.add_argument("action", choices=["install", "status"])
+    fo.add_argument("dir", nargs="?", default="assets/fonts")
+    fo.set_defaults(fn=cmd_fonts)
 
     sc = sub.add_parser("schema")
     sc.add_argument("out", nargs="?")

@@ -59,6 +59,14 @@ class BuildOptions:
     margins_mm: dict | None = None        # template margin overrides {"top":..,"bottom":..,"left":..,"right":..}
 
 
+def pdf_font_for(p: LanguageProfile) -> str:
+    """The profile's PDF font if installed on this server, else its fallback."""
+    from ..fonts import available
+    if p.pdf_font_fallback and not available(p.pdf_font):
+        return p.pdf_font_fallback
+    return p.pdf_font
+
+
 # ----------------------------------------------------------------- xml utils
 
 def _el(tag: str, **attrs) -> OxmlElement:
@@ -92,7 +100,9 @@ class _Ctx:
         self.body = self.t.body_size_pt
 
     def target_font(self) -> str:
-        return self.t.word_font if self.opts.font_mode == "word" else self.t.pdf_font
+        if self.opts.font_mode == "word":
+            return self.t.word_font
+        return pdf_font_for(self.t)
 
     def font(self, slot: str) -> str:
         if slot == self.t.font_slot:
@@ -101,7 +111,7 @@ class _Ctx:
             return self.target_font()
         s = self.pair.source
         if slot == s.font_slot and s.font_slot != "ascii":
-            return s.word_font if self.opts.font_mode == "word" else s.pdf_font
+            return s.word_font if self.opts.font_mode == "word" else pdf_font_for(s)
         return FALLBACK[slot][self.opts.font_mode]
 
 

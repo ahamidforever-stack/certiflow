@@ -38,7 +38,8 @@ class LanguageProfile(BaseModel):
     word_tag: str                           # w:lang value, e.g. "ar-AE", "en-GB"
     font_slot: Literal["ascii", "cs", "eastAsia"]  # which w:rFonts slot carries this script
     word_font: str
-    pdf_font: str                           # open font installed in the build image
+    pdf_font: str                           # font used for the PDF build (must be installed on the server)
+    pdf_font_fallback: Optional[str] = None  # used when pdf_font is not installed (e.g. licensed font missing)
     body_size_pt: float = 12
     heading_scale: float = 1.25
     line_spacing: float = 1.15

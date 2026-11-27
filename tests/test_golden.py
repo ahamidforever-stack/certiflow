@@ -58,5 +58,9 @@ def test_office_golden_set_rebuilds_exactly(tmp_path):
         pytest.skip("office asset library not set up")
     res = run_golden_set(GOLDEN, AssetLibrary(lib_path), "amir.gomaa", tmp_path)
     assert res
+    from certiflow.fonts import available
+    exact_font = available("Sakkal Majalla")
     for r in res:
         assert r.body_exact, (r.case, r.diffs[:3])
+        if exact_font and r.approved_tr_pages is not None:
+            assert r.tr_pages == r.approved_tr_pages, (r.case, r.tr_pages, r.approved_tr_pages)

@@ -26,6 +26,28 @@ It also finds the signature and stamp already placed in the template's footer, m
 On build, those baked-in images are removed. The job's chosen stamp and the translator's signature are then placed at that
 position on every page (odd and even), never above the bottom margin. `inputs/` and `assets/` are git-ignored.
 
+## Licensed fonts (PDF)
+
+LibreOffice can only use fonts installed on the server. Put the office's licensed font files in `assets/fonts/`
+(git-ignored) and run:
+
+```bash
+certiflow fonts install assets/fonts   # e.g. majalla.ttf, majallab.ttf
+certiflow fonts status                 # which PDF font each language actually uses
+```
+
+Arabic PDFs use Sakkal Majalla when it is installed and fall back to Amiri when it is not. Word files always name
+Sakkal Majalla.
+
+## Golden set (regression)
+
+```bash
+certiflow golden run inputs/golden_set --library assets/shoreline/library.json --user amir.gomaa
+```
+
+Layout: `<src>-<tgt>/<case>/approved.docx` plus an optional `approved.pdf` (the source pages are extracted from it).
+Each case is imported into the model, rebuilt, and compared element by element. Translation page counts are compared too.
+
 ## Try it
 
 ```bash
