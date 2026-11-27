@@ -139,8 +139,10 @@ def _client(mock_target: str | None):
         print("NOTE: --mock uses offline pseudo-translations for testing; the output is not a real translation.")
         return make_mock(mock_target)
     import os
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        sys.exit("error: ANTHROPIC_API_KEY is not set in this environment (or run with --mock for an offline test run)")
+    from .llm.client import api_key_from_env
+    if not api_key_from_env():
+        sys.exit("error: no Claude API key in this environment. Set CERTIFLOW_ANTHROPIC_API_KEY "
+                 "(or ANTHROPIC_API_KEY on your own server), or run with --mock for an offline test run")
     from .llm.client import AnthropicClient
     st = load()
     return AnthropicClient(fallbacks=st.fallbacks, validation_retries=st.pipeline.validation_retries)

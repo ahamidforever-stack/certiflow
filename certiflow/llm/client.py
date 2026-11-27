@@ -116,6 +116,18 @@ def request_fingerprint(req: LLMRequest) -> str:
 
 # --------------------------------------------------------------- Anthropic
 
+KEY_VARS = ("CERTIFLOW_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY")
+
+
+def api_key_from_env() -> Optional[str]:
+    """CertiFlow's own variable first: hosted coding sessions may reserve ANTHROPIC_API_KEY for
+    themselves and not pass it to commands. Returns None to let the SDK resolve credentials."""
+    import os
+    for v in KEY_VARS:
+        if os.environ.get(v, "").strip():
+            return os.environ[v].strip()
+    return None
+
 class AnthropicClient:
     """Claude Messages API. The API key is read by the SDK from the server
     environment (ANTHROPIC_API_KEY); it is never passed around in code."""
@@ -124,7 +136,7 @@ class AnthropicClient:
                  max_backoff_retries: int = 4):
         import anthropic
         self._anthropic = anthropic
-        self.client = anthropic.Anthropic(max_retries=2)
+        self.client = anthropic.Anthropic(api_key=api_key_from_env(), max_retries=2)
         self.fallbacks = fallbacks
         self.validation_retries = validation_retries
         self.max_backoff_retries = max_backoff_retries

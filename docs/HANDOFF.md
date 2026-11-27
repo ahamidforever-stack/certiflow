@@ -21,10 +21,12 @@ certiflow fonts status
 - `inputs/golden_set/en-ar/` holds the approved cases. Case 01 has no source document yet.
 
 ## First thing to run with the API key
-The key is in the environment variable `ANTHROPIC_API_KEY` (cloud environment "certiflow"). Never ask the user to paste
-keys in chat.
+The key is in the environment variable `CERTIFLOW_ANTHROPIC_API_KEY` (cloud environment "certiflow"). Hosted
+sessions do not pass `ANTHROPIC_API_KEY` to commands, so CertiFlow reads its own variable first
+(`certiflow/llm/client.py: api_key_from_env`). Check it with `test -n "$CERTIFLOW_ANTHROPIC_API_KEY" && echo set`.
+Never ask the user to paste keys in chat.
 ```bash
-python3 -m pytest -q tests                                   # sanity
+python3 -m pytest -q tests                                   # 57 pass with the office files, some skip without
 certiflow golden score inputs/golden_set --library assets/shoreline/library.json --user amir.gomaa --out out/score_v1
 ```
 Report per case: figure and identifier recall, length ratio, leftover script, open blockers, and cost (from

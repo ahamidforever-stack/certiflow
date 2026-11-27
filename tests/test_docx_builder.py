@@ -42,7 +42,8 @@ def test_direction_and_fonts(src, tgt, mode, library, tmp_path):
     for t in body.iter(f"{W}tbl"):
         assert (t.find(f"{W}tblPr/{W}bidiVisual") is not None) == rtl
 
-    want_font = prof.word_font if mode == "word" else prof.pdf_font
+    from certiflow.builder.docx_builder import pdf_font_for
+    want_font = prof.word_font if mode == "word" else pdf_font_for(prof)   # fallback when the licensed font is absent
     slot = {"ascii": "ascii", "cs": "cs", "eastAsia": "eastAsia"}[prof.font_slot]
     fonts = {r.find(f"{W}rPr/{W}rFonts").get(f"{W}{slot}") for r in body.iter(f"{W}r") if r.find(f"{W}rPr/{W}rFonts") is not None}
     assert fonts == {want_font}

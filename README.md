@@ -15,7 +15,7 @@ pip install -e .[dev]
 ## Translate (agent pipeline)
 
 ```bash
-export ANTHROPIC_API_KEY=...            # server environment only; never in code or the browser
+export CERTIFLOW_ANTHROPIC_API_KEY=...  # server environment only (ANTHROPIC_API_KEY also works); never in code or the browser
 certiflow translate source.pdf --from en --to ar --stamp certified --user amir.gomaa \
   --library assets/shoreline/library.json --job-dir jobs/J001
 certiflow job confirm-glossary jobs/J001 --by amir.gomaa [--file edited_glossary.json]
