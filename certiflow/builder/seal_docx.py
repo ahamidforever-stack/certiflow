@@ -108,8 +108,21 @@ def _inline_seal(docx, ctx, seal: SealSpec):
 
 
 def _hidden_marker(p_el, ctx, text: str):
-    from .docx_builder import _add_run
-    _add_run(p_el, ctx, text, size_pt=1, color="FFFFFF", proof=False)
+    """Invisible marker for the release check. It inherits the paragraph's font, size and language
+    and only sets white colour: any own font or size would change the footer's line metrics and move
+    the template's floating footer graphics (e.g. the address bar)."""
+    from docx.oxml import OxmlElement
+    r = OxmlElement("w:r")
+    rpr = OxmlElement("w:rPr")
+    col = OxmlElement("w:color")
+    col.set(qn("w:val"), "FFFFFF")
+    rpr.append(col)
+    rpr.append(OxmlElement("w:noProof"))
+    r.append(rpr)
+    t = OxmlElement("w:t")
+    t.text = text
+    r.append(t)
+    p_el.append(r)
 
 
 # ------------------------------------------------------------------- build

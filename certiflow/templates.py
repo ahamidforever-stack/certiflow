@@ -253,3 +253,41 @@ def source_layout_from_reference_pdf(pdf: Path, signature_png: Path, stamp_pngs:
     finally:
         doc.close()
     return None
+
+
+def align_footer_graphics(template: Path, reference: Path) -> int:
+    """Give the template's floating footer graphics (address bar, ornaments) the exact anchor
+    position they have in an approved reference document, in every footer. Returns the number
+    of anchors changed. The template file is rewritten in place."""
+    import hashlib
+    import copy as _copy
+    from lxml import etree
+    WP = "{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}"
+    ref = load_docx(str(reference))
+    pos: dict[str, tuple] = {}
+    for _, kind, f in active_footers(ref):
+        for d in f._element.iter(qn("w:drawing")):
+            blip = next(d.iter(A_BLIP), None)
+            anchor = d.find(WP + "anchor")
+            if blip is None or anchor is None:
+                continue
+            sha = hashlib.sha1(f.part.related_parts[blip.get(R_EMBED)].blob).hexdigest()
+            if kind == "default" or sha not in pos:
+                pos[sha] = (anchor.find(WP + "positionH"), anchor.find(WP + "positionV"))
+    doc = load_docx(str(template))
+    changed = 0
+    for _, kind, f in active_footers(doc):
+        for d in f._element.iter(qn("w:drawing")):
+            blip = next(d.iter(A_BLIP), None)
+            anchor = d.find(WP + "anchor")
+            if blip is None or anchor is None:
+                continue
+            sha = hashlib.sha1(f.part.related_parts[blip.get(R_EMBED)].blob).hexdigest()
+            if sha not in pos:
+                continue
+            for old, new in zip((anchor.find(WP + "positionH"), anchor.find(WP + "positionV")), pos[sha]):
+                if old is not None and new is not None and etree.tostring(old) != etree.tostring(new):
+                    old.getparent().replace(old, _copy.deepcopy(new))
+                    changed += 1
+    doc.save(str(template))
+    return changed

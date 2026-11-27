@@ -354,12 +354,19 @@ def text_seal_overlaps(pdf: Path, seal: SealSpec, pages: range | None = None) ->
             found = _seal_images(pdf, i, seal)
             rects = found["stamp"] + found["signature"]
             tp = doc[i].get_textpage()
-            for ci in range(tp.count_chars()):
+            n = tp.count_chars()
+            full = tp.get_text_range(0, n) if n else ""
+            skip: set[int] = set()
+            start = full.find(seal.marker)
+            while start != -1:  # the invisible seal marker is not page text
+                skip.update(range(start, start + len(seal.marker)))
+                start = full.find(seal.marker, start + 1)
+            for ci in range(n):
                 ch = tp.get_text_range(ci, 1)
-                if not ch.strip():
+                if not ch.strip() or ci in skip:
                     continue
                 l, b, rr, t = tp.get_charbox(ci)
-                if (t - b) < 2:  # 1pt hidden marker
+                if (t - b) < 2:
                     continue
                 cr = Rect(l, b, rr - l, t - b)
                 if any(cr.overlaps(s) for s in rects):

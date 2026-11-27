@@ -130,9 +130,10 @@ def _run_props(ctx: _Ctx, *, size_pt: float, bold: bool, italic: bool, rtl: bool
         rpr.append(_el("w:iCs"))
     if color:
         rpr.append(_el("w:color", val=color))
-    hp = str(int(round(size_pt * 2)))
-    rpr.append(_el("w:sz", val=hp))
-    rpr.append(_el("w:szCs", val=hp))
+    if size_pt is not None:  # None: inherit the paragraph's size (keeps footer line metrics unchanged)
+        hp = str(int(round(size_pt * 2)))
+        rpr.append(_el("w:sz", val=hp))
+        rpr.append(_el("w:szCs", val=hp))
     if rtl:
         rpr.append(_el("w:rtl"))
     if not proof:

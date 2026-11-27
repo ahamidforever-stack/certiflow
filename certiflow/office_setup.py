@@ -10,7 +10,8 @@ import shutil
 from pathlib import Path
 
 from .imageprep import remove_background
-from .templates import import_template, seal_from_reference, source_layout_from_reference_pdf
+from .templates import (align_footer_graphics, import_template, seal_from_reference,
+                        source_layout_from_reference_pdf)
 
 
 def setup_office(template: Path, signature: Path, certified_stamp: Path, office_stamp: Path, out: Path, *,
@@ -31,6 +32,9 @@ def setup_office(template: Path, signature: Path, certified_stamp: Path, office_
         "certified": remove_background(certified_stamp, cst),
         "office": remove_background(office_stamp, ost),
     }
+    if reference_docx:
+        # the office's approved outputs decide where floating footer graphics sit on every page
+        align_footer_graphics(tpl, reference_docx)
     imp = import_template(tpl, sig, [cst, ost])
     margins = None
     if reference_docx:
