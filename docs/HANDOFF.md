@@ -4,7 +4,7 @@ Read this first in a new session.
 
 ## Status
 - **Phase 1** (document model, Word/PDF builder, stamping, release verification) is done.
-- **Phase 2** (agents, prompts, LangGraph pipeline, QA loop, audit, golden harness) is done: 66 tests pass with the office files.
+- **Phase 2** (agents, prompts, LangGraph pipeline, QA loop, audit, golden harness) is done: 67 tests pass with the office files.
 - The golden set (3 approved EN>AR translations from the office) rebuilds exactly at Word level. PDF page counts match
   when Sakkal Majalla is installed. The header, footer and seal positions match the approved PDFs on every page.
 - **First real API runs done (2026-11-27).** Golden score passes on cases 02 and 03 with intake v3 + translator v2
@@ -19,6 +19,10 @@ Read this first in a new session.
   clock times and chemical symbols as identifiers; Arabic units and times follow the approved translations
   (`profiles/data/ar.json`); translator v2 drops markup symbols printed in a source (`#`, `**`); intake v3 describes
   photos in one short sentence.
+- **Known layout gap:** intake does not read table layout the same way every run. In the active run it read the
+  case 02 nursing notes as a 2-column table (approved: one full-width cell; earlier run: a paragraph). The builder
+  now widens a plain-table column that holds most of the text, but rows never split (house layout), so that draft
+  is 15 pages against 12 approved, with a mostly empty page 6. The golden score does not measure page count yet.
 - **Drafts for review:** the pipeline stops at the translator-approval gate, so golden outputs carry no seal. Never run
   `job approve` on the user's behalf: approval records the certified translator's sign-off and applies the stamp.
 

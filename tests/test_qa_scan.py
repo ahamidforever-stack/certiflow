@@ -60,3 +60,16 @@ def test_real_codes_are_still_protected():
     d = _doc("Flat 12C, ref DLJ0240732, file AB-12-CD", "شقة 12، المرجع DLJ0240732، الملف AB-12")
     missing = identifiers_match(d)[0].detail
     assert "12C" in missing and "AB-12-CD" in missing and "DLJ0240732" not in missing
+
+
+def test_long_text_column_gets_the_width():
+    from certiflow.builder.docx_builder import _balanced_widths
+    from certiflow.model import TableCell, TableRow
+    b = Block(id="t", type=BlockType.table, column_widths=[1.0, 3.0],
+              rows=[TableRow(cells=[TableCell(source_text="x" * 1800, translated_text="x" * 1800),
+                                    TableCell(source_text="Shanty Jojo", translated_text="شانتي جوجو")])])
+    w = _balanced_widths(b, b.column_widths, 2)
+    assert w[0] / sum(w) == 0.7
+    # an ordinary table keeps its widths
+    b2 = b.model_copy(update={"column_widths": [3.0, 1.0]})
+    assert _balanced_widths(b2, b2.column_widths, 2) == [3.0, 1.0]
