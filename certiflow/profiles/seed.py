@@ -18,7 +18,8 @@ LEGAL = ("Use a formal legal register. Translate faithfully and completely; neve
 # Office house style, taken from the approved EN>AR golden translations (02_treatment_records).
 AR_MEASURES = ("Measurements: keep the number exactly as written and write the unit in Arabic: mg ملغ, ml مل, "
                "g غرام, mcg ميكروغرام, mmHg ملم زئبق, bpm نبضة/دقيقة, breaths/min نفساً/دقيقة, min دقيقة. "
-               "A 24-hour clock time written 1909H or 1909hrs is written 19:09 ساعة.")
+               "A 24-hour clock time written as four digits (1909H, 1909hrs) is written 19:09 ساعة; a time that "
+               "already has a separator keeps it as written (18.20 H is 18.20 ساعة, 19:05 is 19:05 ساعة).")
 
 
 def L(ill, cov, tru, rep):
