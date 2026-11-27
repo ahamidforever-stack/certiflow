@@ -20,6 +20,28 @@ certiflow fonts status
   translator `amir.gomaa`, the seal layout, the margins and the source-page band, all taken from the approved outputs.
 - `inputs/golden_set/en-ar/` holds the approved cases. Case 01 has no source document yet.
 
+### If the user uploads the original files instead of the zip
+Zip attachments may not reach the session. The user then attaches the loose files: the template (`Source_templete.docx`),
+three JPGs (signature, certified stamp with the translator's name and licence 659, office stamp "DUBAI - U.A.E."),
+`majalla.ttf`, and the approved samples (`*_AR.docx` and `*_AR.pdf`). Find them under `/root/.claude/uploads/`, look at
+the three images to tell them apart, then rebuild the office setup:
+```bash
+mkdir -p inputs/raw assets/fonts inputs/golden_set/en-ar/{01_cctv_email_thread,02_treatment_records,03_cctv_service_report}
+cp <template>.docx inputs/shoreline_template.docx
+cp <signature>.jpg inputs/raw/signature.jpg; cp <certified>.jpg inputs/raw/stamp_certified.jpg; cp <office>.jpg inputs/raw/stamp_office.jpg
+cp <majalla>.ttf assets/fonts/majalla.ttf && certiflow fonts install assets/fonts
+# approved samples: <case>/approved.docx and <case>/approved.pdf (case 01 has a .docx only)
+certiflow setup-office --template inputs/shoreline_template.docx --signature inputs/raw/signature.jpg \
+  --certified-stamp inputs/raw/stamp_certified.jpg --office-stamp inputs/raw/stamp_office.jpg \
+  --translator-id amir.gomaa --translator-name "Amir Gomaa" --out assets/shoreline \
+  --reference-docx inputs/golden_set/en-ar/03_cctv_service_report/approved.docx \
+  --reference-pdf inputs/golden_set/en-ar/03_cctv_service_report/approved.pdf \
+  --certified-width-mm 58.3 --office-width-mm 58.3 --signature-width-mm 51.4
+certiflow golden run inputs/golden_set --library assets/shoreline/library.json --user amir.gomaa   # expect 3x PASS
+```
+(The earlier setup used sharper copies of the certified stamp and signature taken from inside the template, at
+`word/media/image2.png` and `image3.png`. Extract them with `unzip -p` and pass them instead of the JPGs for better print quality.)
+
 ## First thing to run with the API key
 The key is in the environment variable `CERTIFLOW_ANTHROPIC_API_KEY` (cloud environment "certiflow"). Hosted
 sessions do not pass `ANTHROPIC_API_KEY` to commands, so CertiFlow reads its own variable first
