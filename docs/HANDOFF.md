@@ -1,0 +1,53 @@
+# Handoff: status and next steps
+
+Read this first in a new session.
+
+## Status
+- **Phase 1** (document model, Word/PDF builder, stamping, release verification) is done.
+- **Phase 2** (agents, prompts, LangGraph pipeline, QA loop, audit, golden harness) is done and tested offline: 57 tests pass.
+- The golden set (3 approved EN>AR translations from the office) rebuilds exactly at Word level. PDF page counts match
+  when Sakkal Majalla is installed. The header, footer and seal positions match the approved PDFs on every page.
+- **Not yet done:** the first real run with the Claude API. Phase 3 (web app) has not started.
+
+## Office files (confidential, never committed)
+The user uploads `certiflow_office_assets.zip`. From the repository root:
+```bash
+unzip -o certiflow_office_assets.zip      # creates assets/ and inputs/ (both git-ignored)
+certiflow fonts install assets/fonts      # Sakkal Majalla for Arabic PDFs
+certiflow fonts status
+```
+- `assets/shoreline/library.json` holds the office template, the stamps (certified/office), the signature of the
+  translator `amir.gomaa`, the seal layout, the margins and the source-page band, all taken from the approved outputs.
+- `inputs/golden_set/en-ar/` holds the approved cases. Case 01 has no source document yet.
+
+## First thing to run with the API key
+The key is in the environment variable `ANTHROPIC_API_KEY` (cloud environment "certiflow"). Never ask the user to paste
+keys in chat.
+```bash
+python3 -m pytest -q tests                                   # sanity
+certiflow golden score inputs/golden_set --library assets/shoreline/library.json --user amir.gomaa --out out/score_v1
+```
+Report per case: figure and identifier recall, length ratio, leftover script, open blockers, and cost (from
+`out/score_v1/<pair>/<case>/audit.jsonl`). Send the Word/PDF outputs next to the approved versions, then tune the
+prompts (`docs/PROMPT_VERSIONING.md`: new versions, never edit v1 in place).
+
+## Decisions already made with the user
+- **Stamp choice:** required per job, no default (Certified = Amir Gomaa licence 659, or Office). The stamp is applied
+  only after a certified translator approves.
+- **Seal size and position:** stamp 58.3 mm, signature 51.4 mm, both from the approved outputs. The template's
+  baked-in seal is stripped. The seal sits on every page.
+- **Source pages:** "band" mode: the scan is fitted above a 50 mm band and the seal sits in the band.
+- **Arabic house style:** 13 pt Sakkal Majalla, section bars D9E2F3, label cells F2F2F2, notes in italic 11 pt
+  1F3864, and the `‎1‎.‏` numbering. All stored as data (`certiflow/house.py`, `profiles/data/ar.json`).
+- **Models:** in `config/agents.json`. Opus 5.5 for the translator, proofreader, QA and glossary; Sonnet 5.5 for intake
+  and the formatter. Server-side refusal fallback is on.
+
+## Open items for the user
+- The source document for golden case 01 (the email thread).
+- `majallab.ttf` (Sakkal Majalla Bold) for exact bold in PDFs.
+- Confirm the Microsoft font licence covers server use.
+- Rotate the API key: earlier keys were exposed in chat.
+
+## Next phase
+Phase 3, the web app: FastAPI, Celery/Redis, PostgreSQL checkpointer, React/TS/Tailwind with RTL UI, upload, the
+stamp selector, the pipeline view with SSE, downloads and auth. Work on a branch and open a PR when done.
