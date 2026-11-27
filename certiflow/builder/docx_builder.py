@@ -4,23 +4,26 @@ Two font modes from the same model:
   * ``word`` - the release .docx, using each profile's Word font.
   * ``pdf``  - an identical document using the profile's embedded open font,
                converted by LibreOffice (which does not have proprietary Word fonts).
+
+Layout comes from three layers, most specific first: the block's own Layout
+(Formatter output), the office HouseStyle, the target Language Profile.
 """
 from __future__ import annotations
 
-import copy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
 from docx import Document as load_docx
-from docx.enum.text import WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Mm, Pt
 
+from ..house import DEFAULT as DEFAULT_HOUSE
+from ..house import HouseStyle
 from ..model import Block, BlockType, Direction, Document, InlineRun, PageOrder, RunKind, TableCell
 from ..profiles import LanguageProfile, ResolvedPair, resolve_pair
-from ..textdir import infer_direction, isolate, needs_isolation, segment
+from ..textdir import LRM, RLM, infer_direction, isolate, needs_isolation, segment
+from .seal_docx import install_seal
 
 FontMode = Literal["word", "pdf"]
 
@@ -42,7 +45,7 @@ class SealSpec:
     stamp_width_mm: float = 38.0
     signature_width_mm: float = 32.0
     marker: str = SEAL_MARKER
-    layout: dict | None = None            # template seal layout (page-relative centres, mm)
+    layout: dict | None = None            # template seal layout (page-relative ink centres, mm)
     strip_images: list[str] = field(default_factory=list)  # sha1 of template footer images to remove
 
 
@@ -52,7 +55,8 @@ class BuildOptions:
     isolation_style: Literal["marks", "isolate"] = "marks"
     page_order: PageOrder = PageOrder.translation_then_source
     seal: SealSpec | None = None
-    _end_notes: list[Block] = field(default_factory=list)
+    house: HouseStyle = field(default_factory=lambda: DEFAULT_HOUSE)
+    margins_mm: dict | None = None        # template margin overrides {"top":..,"bottom":..,"left":..,"right":..}
 
 
 # ----------------------------------------------------------------- xml utils
@@ -72,18 +76,29 @@ def _get_or_add(parent, tag: str):
     return found
 
 
+def _tw(pt: float) -> int:
+    return int(round(pt * 20))
+
+
 class _Ctx:
     def __init__(self, doc_model: Document, pair: ResolvedPair, opts: BuildOptions, text_width_twips: int):
         self.m = doc_model
         self.pair = pair
         self.t: LanguageProfile = pair.target
         self.opts = opts
+        self.h: HouseStyle = opts.house
         self.dir = self.t.direction
         self.width = text_width_twips
+        self.body = self.t.body_size_pt
+
+    def target_font(self) -> str:
+        return self.t.word_font if self.opts.font_mode == "word" else self.t.pdf_font
 
     def font(self, slot: str) -> str:
         if slot == self.t.font_slot:
-            return self.t.word_font if self.opts.font_mode == "word" else self.t.pdf_font
+            return self.target_font()
+        if self.h.latin_in_target_font and self.t.font_slot == "cs" and slot in ("ascii", "eastAsia"):
+            return self.target_font()
         s = self.pair.source
         if slot == s.font_slot and s.font_slot != "ascii":
             return s.word_font if self.opts.font_mode == "word" else s.pdf_font
@@ -96,7 +111,7 @@ def _run_props(ctx: _Ctx, *, size_pt: float, bold: bool, italic: bool, rtl: bool
                color: str | None = None):
     rpr = _el("w:rPr")
     rpr.append(_el("w:rFonts", ascii=ctx.font("ascii"), hAnsi=ctx.font("ascii"),
-                   cs=ctx.font("cs"), eastAsia=ctx.font("eastAsia")))
+                   eastAsia=ctx.font("eastAsia"), cs=ctx.font("cs")))
     if bold:
         rpr.append(_el("w:b"))
         rpr.append(_el("w:bCs"))
@@ -134,13 +149,22 @@ def _add_run(p_el, ctx: _Ctx, text: str, *, size_pt: float, bold=False, italic=F
     return r
 
 
-def _add_runs(p_el, ctx: _Ctx, runs: list[InlineRun], pdir: Direction, size_pt: float, bold: bool):
+@dataclass
+class _RunStyle:
+    size: float
+    bold: bool = False
+    italic: bool = False
+    color: str | None = None
+
+
+def _add_runs(p_el, ctx: _Ctx, runs: list[InlineRun], pdir: Direction, st: _RunStyle):
     for run in runs:
         iso = needs_isolation(run, pdir)
         rdir = run.direction or infer_direction(run.text) or pdir
         text = isolate(run.text, rdir, ctx.opts.isolation_style) if iso else run.text
-        _add_run(p_el, ctx, text, size_pt=size_pt, bold=bold or run.bold, italic=run.italic,
-                 rtl=(rdir == Direction.rtl and not (iso and rdir == Direction.ltr)),
+        _add_run(p_el, ctx, text, size_pt=run.size_pt or st.size, bold=st.bold or run.bold,
+                 italic=st.italic or run.italic, color=run.color or st.color,
+                 rtl=(rdir == Direction.rtl),
                  proof=run.kind in (RunKind.text, RunKind.name))
 
 
@@ -150,22 +174,28 @@ def _runs_for(text: str, runs: list[InlineRun] | None, pdir: Direction) -> list[
 
 # ------------------------------------------------------------- paragraphs
 
-def _new_par(ctx: _Ctx, pdir: Direction, *, align: str | None, keep_next=False, space_before=0.0,
-             space_after=6.0, indent_level=0, line=None):
+_JC = {"start": "left", "end": "right", "center": "center", "justify": "both"}
+
+
+def _new_par(ctx: _Ctx, pdir: Direction, *, align: str, keep_next=False, space_before=0.0,
+             space_after=3.0, indent_twips: int = 0, fill: str | None = None, line: float | None = None):
     p = _el("w:p")
     ppr = _el("w:pPr")
     if keep_next:
         ppr.append(_el("w:keepNext"))
+    if fill:
+        ppr.append(_el("w:shd", val="clear", color="auto", fill=fill))
     if pdir == Direction.rtl:
         ppr.append(_el("w:bidi"))
-    ppr.append(_el("w:spacing", before=int(space_before * 20), after=int(space_after * 20),
-                   line=int(240 * (line or ctx.t.line_spacing)), lineRule="auto"))
-    if indent_level:
-        ppr.append(_el("w:ind", start=360 * indent_level))
-    # In bidi paragraphs Word treats left/right relative to the reading direction.
-    jc = {"start": "left", "end": "right", "center": "center", "justify": "both"}[
-        align or ("justify" if ctx.t.justify else "start")]
-    ppr.append(_el("w:jc", val=jc))
+    sp = {"before": _tw(space_before), "after": _tw(space_after)}
+    ln = line if line is not None else ctx.h.line_spacing
+    if ln:
+        sp.update(line=int(240 * ln), lineRule="auto")
+    ppr.append(_el("w:spacing", **sp))
+    if indent_twips:
+        ppr.append(_el("w:ind", start=indent_twips))
+    # In bidi paragraphs Word and LibreOffice read left/right relative to the reading direction.
+    ppr.append(_el("w:jc", val=_JC[align]))
     p.append(ppr)
     return p
 
@@ -174,26 +204,73 @@ def _block_dir(ctx: _Ctx, b: Block) -> Direction:
     return b.direction or ctx.dir
 
 
-def _render_text_block(body, ctx: _Ctx, b: Block, *, prefix_runs: list[InlineRun] | None = None,
-                       text: str | None = None, align=None, bold=False, scale=1.0, keep_next=False,
-                       space_before=0.0, space_after=6.0):
-    pdir = _block_dir(ctx, b)
+@dataclass
+class _ParStyle:
+    align: str
+    size: float
+    bold: bool = False
+    italic: bool = False
+    color: str | None = None
+    keep_next: bool = False
+    before: float = 0.0
+    after: float = 3.0
+    indent: int = 0
+    fill: str | None = None
+
+
+def _apply_layout(ps: _ParStyle, b: Block, ctx: _Ctx) -> _ParStyle:
     lay = b.layout
-    p = _new_par(ctx, pdir, align=lay.align or align, keep_next=lay.keep_with_next or keep_next,
-                 space_before=lay.space_before_pt if lay.space_before_pt is not None else space_before,
-                 space_after=lay.space_after_pt if lay.space_after_pt is not None else space_after,
-                 indent_level=lay.indent_level)
-    size = ctx.t.body_size_pt * scale * lay.font_scale
-    runs = list(prefix_runs or []) + _runs_for(text if text is not None else b.translated_text,
-                                               None if text is not None else b.runs, pdir)
-    _add_runs(p, ctx, runs, pdir, size, bold if lay.bold is None else lay.bold)
+    if lay.align:
+        ps.align = lay.align
+    if lay.bold is not None:
+        ps.bold = lay.bold
+    if lay.size_pt:
+        ps.size = lay.size_pt
+    elif lay.font_scale != 1.0:
+        ps.size = ps.size * lay.font_scale
+    if lay.keep_with_next is not None:
+        ps.keep_next = lay.keep_with_next
+    if lay.space_before_pt is not None:
+        ps.before = lay.space_before_pt
+    if lay.space_after_pt is not None:
+        ps.after = lay.space_after_pt
+    if lay.indent_twips is not None:
+        ps.indent = lay.indent_twips
+    elif lay.indent_level:
+        ps.indent = 360 * lay.indent_level
+    if lay.fill is not None:
+        ps.fill = lay.fill or None
+    return ps
+
+
+def _paragraph(body, ctx: _Ctx, b: Block, ps: _ParStyle, runs: list[InlineRun]):
+    pdir = _block_dir(ctx, b)
+    p = _new_par(ctx, pdir, align=ps.align, keep_next=ps.keep_next, space_before=ps.before,
+                 space_after=ps.after, indent_twips=ps.indent, fill=ps.fill)
+    _add_runs(p, ctx, runs, pdir, _RunStyle(ps.size, ps.bold, ps.italic, ps.color))
     body.append(p)
     return p
 
 
+def _text_runs(ctx: _Ctx, b: Block) -> list[InlineRun]:
+    return _runs_for(b.translated_text, b.runs, _block_dir(ctx, b))
+
+
+def _label_runs(ctx: _Ctx, label: str, pdir: Direction) -> list[InlineRun]:
+    """Numbering label as the house writes it. RTL, isolated_digits: ‎1‎.‏ + gap."""
+    h = ctx.h
+    label = label.strip()
+    if pdir == Direction.rtl and h.number_label == "isolated_digits":
+        core = label.rstrip(".)-:")
+        tail = label[len(core):]
+        out = [InlineRun(text=core, kind=RunKind.number, direction=Direction.ltr)]
+        out.append(InlineRun(text=tail + (RLM if tail else "") + h.number_gap))
+        return out
+    return [InlineRun(text=label + h.number_gap)]
+
+
 def _note_text(ctx: _Ctx, text: str) -> str:
-    lb = ctx.t.labels
-    return f"{lb.note_open} {text.strip()} {lb.note_close}"
+    return ctx.h.note_wrap.format(text=text.strip())
 
 
 def _unreadable_text(ctx: _Ctx, b: Block) -> str:
@@ -213,33 +290,43 @@ def _page_break(body):
 
 # ------------------------------------------------------------------ tables
 
-def _cell_borders():
+def _borders(color: str):
     b = _el("w:tblBorders")
     for side in ("top", "left", "bottom", "right", "insideH", "insideV"):
-        b.append(_el(f"w:{side}", val="single", sz=4, space=0, color="808080"))
+        b.append(_el(f"w:{side}", val="single", sz=4, space=0, color=color))
     return b
 
 
+def _default_widths(b: Block, ncols: int) -> list[float]:
+    if b.type == BlockType.kv_table:
+        if ncols == 2:
+            return [0.3, 0.7]
+        pairs = ncols // 2
+        return [0.44 / pairs, 0.56 / pairs] * pairs
+    return [1.0] * ncols
+
+
 def _render_table(body, ctx: _Ctx, b: Block):
+    h = ctx.h
     pdir = _block_dir(ctx, b)
     ncols = max(sum(c.colspan for c in r.cells) for r in b.rows)
-    rel = b.column_widths or ([0.35, 0.65] if b.type == BlockType.kv_table else [1.0] * ncols)
+    rel = b.column_widths or _default_widths(b, ncols)
     tot = sum(rel)
     widths = [int(ctx.width * w / tot) for w in rel]
+    widths[-1] += ctx.width - sum(widths) if abs(ctx.width - sum(widths)) < 10 else 0
 
     tbl = _el("w:tbl")
     tpr = _el("w:tblPr")
-    tpr.append(_el("w:tblW", w=sum(widths), type="dxa"))
     if pdir == Direction.rtl:
         tpr.append(_el("w:bidiVisual"))
-    tpr.append(_el("w:jc", val="center"))
-    tpr.append(_cell_borders())
+    tpr.append(_el("w:tblW", w=sum(widths), type="dxa"))
+    tpr.append(_borders(h.border_color))
     tpr.append(_el("w:tblLayout", type="fixed"))
     mar = _el("w:tblCellMar")
-    for side in ("top", "bottom"):
-        mar.append(_el(f"w:{side}", w=40, type="dxa"))
-    for side in ("start", "end", "left", "right"):
-        mar.append(_el(f"w:{side}", w=100, type="dxa"))
+    mar.append(_el("w:top", w=h.cell_margin_tb_twips, type="dxa"))
+    mar.append(_el("w:left", w=h.cell_margin_lr_twips, type="dxa"))
+    mar.append(_el("w:bottom", w=h.cell_margin_tb_twips, type="dxa"))
+    mar.append(_el("w:right", w=h.cell_margin_lr_twips, type="dxa"))
     tpr.append(mar)
     tbl.append(tpr)
     grid = _el("w:tblGrid")
@@ -247,7 +334,7 @@ def _render_table(body, ctx: _Ctx, b: Block):
         grid.append(_el("w:gridCol", w=w))
     tbl.append(grid)
 
-    size = ctx.t.body_size_pt * b.layout.font_scale * (0.92 if ncols > 3 else 1.0)
+    base = (b.layout.size_pt or ctx.body * b.layout.font_scale) + h.table_delta_pt
     for row in b.rows:
         tr = _el("w:tr")
         trpr = _el("w:trPr")
@@ -257,139 +344,56 @@ def _render_table(body, ctx: _Ctx, b: Block):
         tr.append(trpr)
         col = 0
         for ci, cell in enumerate(row.cells):
+            is_label = b.type == BlockType.kv_table and ci % 2 == 0 and not (len(row.cells) % 2)
+            is_head = row.header or cell.header
+            fill = cell.fill if cell.fill is not None else (
+                h.label_fill if is_label else h.header_fill if is_head else None)
             tc = _el("w:tc")
             tcpr = _el("w:tcPr")
             tcpr.append(_el("w:tcW", w=sum(widths[col:col + cell.colspan]), type="dxa"))
             if cell.colspan > 1:
                 tcpr.append(_el("w:gridSpan", val=cell.colspan))
-            if row.header or cell.header:
-                tcpr.append(_el("w:shd", val="clear", color="auto", fill="E7E6E6"))
+            if fill:
+                tcpr.append(_el("w:shd", val="clear", color="auto", fill=fill))
+            tcpr.append(_el("w:vAlign", val="top"))
             tc.append(tcpr)
             col += cell.colspan
-            is_key = b.type == BlockType.kv_table and ci == 0
-            bold = cell.bold or row.header or cell.header or is_key
-            _cell_paragraphs(tc, ctx, cell, pdir, size, bold, center=row.header or cell.header)
+            st = _ParStyle(
+                align=cell.align or ("center" if is_head else "start" if is_label else h.value_align),
+                size=cell.size_pt or base, bold=cell.bold or is_label or is_head,
+                after=h.label_after_pt if (is_label or is_head) else h.value_after_pt)
+            _cell_paragraphs(tc, ctx, cell, pdir, st)
             tr.append(tc)
         tbl.append(tr)
     body.append(tbl)
-    # spacer paragraph so consecutive tables do not merge
-    body.append(_new_par(ctx, pdir, align="start", space_after=4))
+    if h.spacer_after_table:
+        sp = _new_par(ctx, pdir, align="start", space_after=h.spacer_after_pt)
+        _add_run(sp, ctx, LRM + LRM, size_pt=h.spacer_size_pt)
+        body.append(sp)
 
 
-def _cell_paragraphs(tc, ctx: _Ctx, cell: TableCell, pdir: Direction, size: float, bold: bool, center: bool):
-    lines = (cell.translated_text or "").split("\n") if not cell.runs else [None]
-    for line in lines:
-        p = _new_par(ctx, pdir, align="center" if center else "start", space_after=0, line=1.0)
-        runs = cell.runs if line is None else segment(line, pdir)
-        _add_runs(p, ctx, runs, pdir, size, bold)
+def _cell_paragraphs(tc, ctx: _Ctx, cell: TableCell, pdir: Direction, st: _ParStyle):
+    """Cell text: one paragraph per line. Explicit runs may contain "\n" to split paragraphs.
+    Rich cells (``blocks``) are rendered block by block with their own layout."""
+    if cell.blocks:
+        for blk in cell.blocks:
+            _render_block(tc, ctx, blk, [])
+        return
+    if cell.runs:
+        lines: list[list[InlineRun]] = [[]]
+        for r in cell.runs:
+            parts = r.text.split("\n")
+            for k, part in enumerate(parts):
+                if k:
+                    lines.append([])
+                if part:
+                    lines[-1].append(r.model_copy(update={"text": part}))
+    else:
+        lines = [segment(line, pdir) for line in (cell.translated_text or "").split("\n")]
+    for runs in lines:
+        p = _new_par(ctx, pdir, align=st.align, space_after=st.after)
+        _add_runs(p, ctx, runs or [InlineRun(text="")], pdir, _RunStyle(st.size, st.bold))
         tc.append(p)
-
-
-# ------------------------------------------------------------------ footer
-
-def _active_footers(docx):
-    out = []
-    for section in docx.sections:
-        out.append((section, section.footer))
-        if docx.settings.odd_and_even_pages_header_footer:
-            out.append((section, section.even_page_footer))
-        if section.different_first_page_header_footer:
-            out.append((section, section.first_page_footer))
-    return out
-
-
-def _strip_baked_seal(docx, strip: list[str]):
-    import hashlib
-    blip_tag = "{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
-    embed = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
-    for _, ft in _active_footers(docx):
-        for d in list(ft._element.iter(qn("w:drawing"))):
-            blip = next(d.iter(blip_tag), None)
-            if blip is None:
-                continue
-            part = ft.part.related_parts.get(blip.get(embed))
-            if part is not None and hashlib.sha1(part.blob).hexdigest() in strip:
-                run = d.getparent()
-                run.getparent().remove(run)
-
-
-_ANCHOR_XML = """<w:r %s><w:drawing><wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="%d"
- behindDoc="0" locked="1" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/>
-<wp:positionH relativeFrom="page"><wp:posOffset>%d</wp:posOffset></wp:positionH>
-<wp:positionV relativeFrom="page"><wp:posOffset>%d</wp:posOffset></wp:positionV>
-<wp:extent cx="%d" cy="%d"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/>
-<wp:docPr id="%d" name="%s"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>
-<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic>
-<pic:nvPicPr><pic:cNvPr id="0" name="%s.png"/><pic:cNvPicPr/></pic:nvPicPr>
-<pic:blipFill><a:blip r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>
-<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>
-</pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>"""
-
-
-def _anchored_seal(docx, ctx: _Ctx, seal: SealSpec):
-    """Floating signature + stamp at the template's measured position, on every
-    page. Kept below the body text area (top clamped to the bottom margin)."""
-    from docx.oxml import parse_xml
-    from docx.oxml.ns import nsdecls
-    from PIL import Image
-    EMU = 36000
-    _strip_baked_seal(docx, seal.strip_images)
-    n = 0
-    for section, ft in _active_footers(docx):
-        ft.is_linked_to_previous = False
-        body_bottom_mm = (section.page_height - section.bottom_margin) / EMU
-        par = ft.paragraphs[0] if ft.paragraphs else ft.add_paragraph()
-        for key, png, width_mm in (("signature", seal.signature_png, seal.signature_width_mm),
-                                   ("stamp", seal.stamp_png, seal.stamp_width_mm)):
-            pos = seal.layout[key]
-            with Image.open(png) as im:
-                h_mm = width_mm * im.height / im.width
-            top = max(pos["cy_mm"] - h_mm / 2, body_bottom_mm + 0.5)
-            left = pos["cx_mm"] - width_mm / 2
-            rid, _ = ft.part.get_or_add_image(str(png))
-            n += 1
-            xml = _ANCHOR_XML % (nsdecls("w", "wp", "a", "pic", "r"), 251700000 + n, int(left * EMU), int(top * EMU),
-                                 int(width_mm * EMU), int(h_mm * EMU), 9000 + n, f"CertiFlow {key} {n}", key, rid,
-                                 int(width_mm * EMU), int(h_mm * EMU))
-            par._p.append(parse_xml(xml))
-        _hidden_marker(par._p, ctx, seal.marker)
-
-
-def _install_seal(docx, ctx: _Ctx, seal: SealSpec):
-    if seal.layout:
-        return _anchored_seal(docx, ctx, seal)
-    return _inline_seal(docx, ctx, seal)
-
-
-def _inline_seal(docx, ctx: _Ctx, seal: SealSpec):
-    """Signature (left) and stamp (right) as inline pictures at the top of every
-    footer. Inline footer content grows the footer, so body text can never run
-    underneath the seal."""
-    for section in docx.sections:
-        footers = [section.footer]
-        if section.different_first_page_header_footer:
-            footers.append(section.first_page_footer)
-        if docx.settings.odd_and_even_pages_header_footer:
-            footers.append(section.even_page_footer)
-        text_w = section.page_width - section.left_margin - section.right_margin
-        for ft in footers:
-            ft.is_linked_to_previous = False
-            par = ft.add_paragraph()
-            # move to top of footer
-            ft._element.remove(par._p)
-            ft._element.insert(0, par._p)
-            pf = par.paragraph_format
-            pf.space_before = Pt(0)
-            pf.space_after = Pt(2)
-            pf.tab_stops.add_tab_stop(text_w, WD_TAB_ALIGNMENT.RIGHT)
-            par.add_run().add_picture(str(seal.signature_png), width=Mm(seal.signature_width_mm))
-            par.add_run("\t")
-            par.add_run().add_picture(str(seal.stamp_png), width=Mm(seal.stamp_width_mm))
-            _hidden_marker(par._p, ctx, seal.marker)
-
-
-def _hidden_marker(p_el, ctx: _Ctx, text: str):
-    _add_run(p_el, ctx, text, size_pt=1, color="FFFFFF", proof=False)
 
 
 # ------------------------------------------------------------------- build
@@ -401,9 +405,19 @@ def _clear_body(docx):
             body.remove(child)
 
 
+def _apply_margins(docx, margins: dict | None):
+    if not margins:
+        return
+    from docx.shared import Mm
+    for s in docx.sections:
+        for k, v in margins.items():
+            setattr(s, f"{k}_margin", Mm(v))
+
+
 def render(model: Document, template: Path, out: Path, opts: BuildOptions) -> Path:
     pair = resolve_pair(model.source_language, model.target_language)
     docx = load_docx(str(template))
+    _apply_margins(docx, opts.margins_mm)
     sec = docx.sections[-1]
     text_width = int((sec.page_width - sec.left_margin - sec.right_margin) / 635)  # EMU -> twips
     ctx = _Ctx(model, pair, opts, text_width)
@@ -420,24 +434,25 @@ def render(model: Document, template: Path, out: Path, opts: BuildOptions) -> Pa
             if current_page is not None:
                 _page_break(tmp)
             current_page = b.source_page
-            mp = _new_par(ctx, ctx.dir, align="start", space_after=0, line=1.0)
-            _hidden_marker(mp, ctx, f"{SEGMENT_MARKER}{b.source_page:03d}")
+            mp = _new_par(ctx, ctx.dir, align="start", space_after=0)
+            _add_run(mp, ctx, f"{SEGMENT_MARKER}{b.source_page:03d}", size_pt=1, color="FFFFFF", proof=False)
             tmp.append(mp)
         _render_block(tmp, ctx, b, end_notes)
 
     if end_notes:
         seen: set[str] = set()
         uniq = [n for n in end_notes if not (n.translated_text.strip() in seen or seen.add(n.translated_text.strip()))]
-        hb = Block(id="_end_heading", type=BlockType.heading, translated_text=ctx.t.labels.repeated_notes_heading)
-        _render_text_block(tmp, ctx, hb, align="center", bold=True, keep_next=True, space_before=12)
+        hb = Block(id="_end_heading", type=BlockType.heading, level=3,
+                   translated_text=ctx.t.labels.repeated_notes_heading)
+        _render_block(tmp, ctx, hb, [])
         for n in uniq:
-            _render_text_block(tmp, ctx, n, text=_note_text(ctx, n.translated_text))
+            _render_block(tmp, ctx, n.model_copy(update={"note_scope": "inline"}), [])
 
     for child in list(tmp):
         sect_pr.addprevious(child)
 
     if opts.seal:
-        _install_seal(docx, ctx, opts.seal)
+        install_seal(docx, ctx, opts.seal)
     _set_doc_language(docx, ctx)
     out.parent.mkdir(parents=True, exist_ok=True)
     docx.save(str(out))
@@ -445,35 +460,53 @@ def render(model: Document, template: Path, out: Path, opts: BuildOptions) -> Pa
 
 
 def _render_block(body, ctx: _Ctx, b: Block, end_notes: list[Block]):
-    t = b.type
+    h, t = ctx.h, b.type
+    pdir = _block_dir(ctx, b)
     if t == BlockType.heading:
-        scale = ctx.t.heading_scale if b.level == 1 else max(1.0, ctx.t.heading_scale - 0.1 * (b.level - 1))
-        _render_text_block(body, ctx, b, align="center", bold=True, scale=scale, keep_next=True,
-                           space_before=6 if b.level == 1 else 4)
+        if b.level == 1:
+            ps = _ParStyle("center", ctx.body + h.title_delta_pt, bold=True, keep_next=True, after=h.title_after_pt)
+        elif b.level == 2:
+            ps = _ParStyle("start", ctx.body + h.section_delta_pt, bold=True, keep_next=True,
+                           before=h.section_before_pt, after=h.section_after_pt, fill=h.section_fill)
+        else:
+            ps = _ParStyle(h.body_align, ctx.body + h.subheading_delta_pt, bold=True, keep_next=True,
+                           after=h.para_after_pt)
+        _paragraph(body, ctx, b, _apply_layout(ps, b, ctx), _text_runs(ctx, b))
     elif t == BlockType.paragraph:
-        _render_text_block(body, ctx, b)
+        _paragraph(body, ctx, b, _apply_layout(_ParStyle(h.body_align, ctx.body, after=h.para_after_pt), b, ctx),
+                   _text_runs(ctx, b))
     elif t == BlockType.numbered_item:
-        label = (b.label or "").strip()
-        pre = [InlineRun(text=label, kind=RunKind.number, direction=Direction.ltr), InlineRun(text=" ")] if label else []
-        b2 = b.model_copy(update={"layout": b.layout.model_copy(update={"indent_level": max(b.layout.indent_level, 0)})})
-        _render_text_block(body, ctx, b2, prefix_runs=pre)
+        pre = _label_runs(ctx, b.label, pdir) if b.label else []
+        _paragraph(body, ctx, b, _apply_layout(_ParStyle(h.body_align, ctx.body, after=h.para_after_pt), b, ctx),
+                   pre + _text_runs(ctx, b))
     elif t == BlockType.bullet:
-        _render_text_block(body, ctx, b, prefix_runs=[InlineRun(text="• ")])
+        ps = _ParStyle(h.body_align, ctx.body, after=h.para_after_pt, indent=h.bullet_indent_twips)
+        _paragraph(body, ctx, b, _apply_layout(ps, b, ctx), [InlineRun(text=h.bullet)] + _text_runs(ctx, b))
     elif t in (BlockType.table, BlockType.kv_table):
         _render_table(body, ctx, b)
     elif t == BlockType.note:
         if b.note_scope == "document_end":
             end_notes.append(b)
-        else:
-            _render_text_block(body, ctx, b, text=_note_text(ctx, b.translated_text), align="start")
+            return
+        ps = _ParStyle("start", ctx.body + h.note_delta_pt, italic=h.note_italic, color=h.note_color,
+                       after=h.para_after_pt)
+        runs = segment(_note_text(ctx, b.translated_text), pdir) if not b.runs else (
+            [InlineRun(text=h.note_wrap.split("{text}")[0])] + b.runs + [InlineRun(text=h.note_wrap.split("{text}")[1])])
+        _paragraph(body, ctx, b, _apply_layout(ps, b, ctx), runs)
     elif t == BlockType.unreadable:
-        _render_text_block(body, ctx, b, text=_unreadable_text(ctx, b))
+        _paragraph(body, ctx, b, _apply_layout(_ParStyle(h.body_align, ctx.body, after=h.para_after_pt), b, ctx),
+                   segment(_unreadable_text(ctx, b), pdir))
     elif t == BlockType.page_break:
         _page_break(body)
     elif t == BlockType.signature_block:
-        for i, line in enumerate(b.translated_text.split("\n")):
-            _render_text_block(body, ctx, b, text=line, align="start", bold=(i == 0), space_after=0,
-                               space_before=8 if i == 0 else 0)
+        lines = b.translated_text.split("\n")
+        for i, line in enumerate(lines):
+            ps = _ParStyle("start", ctx.body, bold=(i == 0), before=8 if i == 0 else 0,
+                           after=0.5 if i < len(lines) - 1 else h.para_after_pt)
+            ps = _apply_layout(ps, b, ctx)
+            if i:
+                ps.before = 0
+            _paragraph(body, ctx, b, ps, segment(line, pdir))
     else:  # pragma: no cover
         raise ValueError(f"unknown block type {t}")
 

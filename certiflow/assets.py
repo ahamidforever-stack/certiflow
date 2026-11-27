@@ -31,6 +31,9 @@ class Asset(BaseModel):
     pair: Optional[str] = None               # templates: bound pair "en>ar"
     seal_layout: Optional[dict] = None       # templates: {"stamp": {cx_mm, cy_mm}, "signature": {...}} from import
     strip_footer_images: list[str] = Field(default_factory=list)  # templates: sha1 of baked-in seal images
+    house_style: Optional[dict] = None       # templates: office house style (certiflow.house.HouseStyle)
+    margins_mm: Optional[dict] = None        # templates: page margin overrides, e.g. {"bottom": 60.9}
+    source_layout: Optional[dict] = None     # templates: {"mode": "band", "area_mm": {...}, "seal": {...}} for source pages
 
 
 class User(BaseModel):

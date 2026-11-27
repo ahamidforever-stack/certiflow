@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..assets import AssetLibrary
+from ..house import HouseStyle
 from ..model import BlockType, Document, JobSpec, PageInfo
 from ..profiles import get_profile
 from .docx_builder import BuildOptions, SealSpec, render
@@ -57,10 +58,10 @@ def build_package(model: Document, source: Path, job: JobSpec, library: AssetLib
 
     with tempfile.TemporaryDirectory(prefix="cf_build_") as td:
         td = Path(td)
-        render(model, library.path(tpl), final_docx,
-               BuildOptions(font_mode="word", seal=seal, page_order=job.pdf_page_order))
-        pdf_docx = render(model, library.path(tpl), td / f"{base}.docx",
-                          BuildOptions(font_mode="pdf", seal=seal, page_order=job.pdf_page_order))
+        house = HouseStyle.model_validate(tpl.house_style or {})
+        common = dict(seal=seal, page_order=job.pdf_page_order, house=house, margins_mm=tpl.margins_mm)
+        render(model, library.path(tpl), final_docx, BuildOptions(font_mode="word", **common))
+        pdf_docx = render(model, library.path(tpl), td / f"{base}.docx", BuildOptions(font_mode="pdf", **common))
         tr_pdf = docx_to_pdf(pdf_docx, td / "tr")
         n_tr = len(_reader(tr_pdf).pages)
         overlaps = text_seal_overlaps(tr_pdf, seal)
@@ -74,7 +75,8 @@ def build_package(model: Document, source: Path, job: JobSpec, library: AssetLib
         rot = {p.number: p.rotation for p in model.pages}
         images = [upright(im, rot.get(i + 1, 0)) for i, im in enumerate(rasterize_source(source, td / "src", dpi))]
         src_pdf = td / "source_stamped.pdf"
-        rep = stamp_source_pages(images, src_pdf, pw, ph, seal, footer, jpeg_quality=jpeg_quality)
+        rep = stamp_source_pages(images, src_pdf, pw, ph, seal, footer, jpeg_quality=jpeg_quality,
+                                 source_layout=tpl.source_layout)
         merged, effective = merge(tr_pdf, src_pdf, td / "merged.pdf", job.pdf_page_order)
 
         v = verify_certified_pdf(merged, seal, expected_pages=n_tr + len(images))

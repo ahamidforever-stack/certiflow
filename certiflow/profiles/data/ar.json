@@ -8,8 +8,8 @@
   "font_slot": "cs",
   "word_font": "Sakkal Majalla",
   "pdf_font": "Amiri",
-  "body_size_pt": 14,
-  "heading_scale": 1.2,
+  "body_size_pt": 13,
+  "heading_scale": 1.15,
   "line_spacing": 1.0,
   "digit_style": "as_source",
   "quote_marks": [

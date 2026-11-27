@@ -91,6 +91,8 @@ class InlineRun(_Base):
     direction: Optional[Direction] = None   # None = inferred from the characters
     bold: bool = False
     italic: bool = False
+    color: Optional[str] = None             # hex RGB, e.g. "1F3864" (notes inside tables)
+    size_pt: Optional[float] = None         # overrides the block size for this run
 
 
 class Flag(_Base):
@@ -117,6 +119,10 @@ class TableCell(_Base):
     header: bool = False
     colspan: int = 1
     bold: bool = False
+    fill: Optional[str] = None              # cell shading override (hex RGB)
+    size_pt: Optional[float] = None
+    align: Optional[Literal["start", "end", "center", "justify"]] = None
+    blocks: Optional[list["Block"]] = None  # rich cell content (paragraphs with their own layout); wins over text
 
 
 class TableRow(_Base):
@@ -129,10 +135,13 @@ class Layout(_Base):
     align: Optional[Literal["start", "center", "end", "justify"]] = None
     bold: Optional[bool] = None
     font_scale: float = 1.0                 # relative to profile body size
-    keep_with_next: bool = False
+    size_pt: Optional[float] = None         # absolute size, wins over font_scale
+    keep_with_next: Optional[bool] = None   # None = house default for the block type
     space_before_pt: Optional[float] = None
     space_after_pt: Optional[float] = None
     indent_level: int = 0
+    indent_twips: Optional[int] = None      # absolute start indent, wins over indent_level
+    fill: Optional[str] = None              # paragraph shading (hex RGB)
 
 
 class Block(_Base):
@@ -150,7 +159,7 @@ class Block(_Base):
     layout: Layout = Field(default_factory=Layout)
 
     # type-specific
-    level: int = Field(1, ge=1, le=6)                       # heading
+    level: int = Field(1, ge=1, le=6)                       # heading: 1 title, 2 section bar, 3 sub-heading
     label: Optional[str] = None                             # numbered_item label as in source ("1.", "(a)", "IV")
     rows: list[TableRow] = Field(default_factory=list)      # table / kv_table
     column_widths: Optional[list[float]] = None             # relative widths
@@ -165,8 +174,8 @@ class Block(_Base):
             raise ValueError(f"block {self.id}: {self.type.value} needs rows")
         if self.type == BlockType.kv_table:
             for r in self.rows:
-                if len(r.cells) != 2:
-                    raise ValueError(f"block {self.id}: kv_table rows need exactly 2 cells")
+                if len(r.cells) < 2 or (len(r.cells) % 2 and sum(c.colspan for c in r.cells) % 2):
+                    raise ValueError(f"block {self.id}: kv_table rows need label/value pairs")
         if self.type == BlockType.unreadable and self.unreadable_reason is None:
             raise ValueError(f"block {self.id}: unreadable needs unreadable_reason")
         if self.column_widths is not None and self.rows:
@@ -219,6 +228,11 @@ class Document(_Base):
 
     def json_schema(self) -> dict:  # pragma: no cover - convenience
         return Document.model_json_schema()
+
+
+TableCell.model_rebuild()
+TableRow.model_rebuild()
+Block.model_rebuild()
 
 
 # --------------------------------------------------------------------------- job

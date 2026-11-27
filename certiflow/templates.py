@@ -69,7 +69,12 @@ def _sig(img: Image.Image) -> np.ndarray:
     g = img.convert("RGBA")
     bg = Image.new("RGBA", g.size, (255, 255, 255, 255))
     bg.alpha_composite(g)
-    a = np.asarray(bg.convert("L").resize((64, 40)), dtype=np.float32)
+    gray = bg.convert("L")
+    ink = np.asarray(gray) < 200
+    if ink.any():  # compare ink only: crop away paper margins
+        ys, xs = np.nonzero(ink)
+        gray = gray.crop((int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1))
+    a = np.asarray(gray.resize((64, 40)), dtype=np.float32)
     a = 255 - a
     return (a - a.mean()) / (a.std() + 1e-6)
 
@@ -148,3 +153,103 @@ def import_template(path: Path, signature_png: Path, stamp_pngs: list[Path]) -> 
     cls = classify(baked, signature_png, stamp_pngs)
     layout = measure_positions(path, cls) if cls else {}
     return {"seal_layout": layout or None, "strip_footer_images": [b["sha1"] for b in baked]}
+
+
+def all_footer_images(path: Path) -> list[dict]:
+    d = load_docx(str(path))
+    seen, out = set(), []
+    for _, kind, f in active_footers(d):
+        for i in footer_images(f):
+            if i["sha1"] not in seen:
+                seen.add(i["sha1"])
+                out.append(dict(i, footer=kind))
+    return out
+
+
+def seal_from_reference(reference: Path, signature_png: Path, stamp_pngs: list[Path], min_sim: float = 0.25) -> dict:
+    """Seal layout (ink centre and ink width, mm) and page margins from an approved
+    output whose footers carry the seal on every page."""
+    import io
+    import tempfile as _tf
+
+    from .imageprep import remove_background
+    imgs = all_footer_images(reference)
+    sig_ref = Image.open(signature_png)
+    st_refs = [Image.open(p) for p in stamp_pngs]
+    best: dict[str, tuple[float, dict]] = {}
+    for b in imgs:
+        im = Image.open(io.BytesIO(b["blob"]))
+        s_sig, s_st = similarity(im, sig_ref), max(similarity(im, r) for r in st_refs)
+        for k, s, other in (("signature", s_sig, s_st), ("stamp", s_st, s_sig)):
+            if s >= min_sim and s > other and (k not in best or s > best[k][0]):
+                best[k] = (s, b)
+    items = {k: v[1] for k, v in best.items()}
+    boxes = measure_positions(reference, items)
+    layout = {}
+    for k, b in items.items():
+        if k not in boxes:
+            continue
+        with _tf.TemporaryDirectory() as td:
+            src = Path(td) / "b.png"
+            src.write_bytes(b["blob"])
+            r = remove_background(src, Path(td) / "o.png")
+        (x0, y0, x1, y1), (W_, H_) = r["crop"], r["source_size"]
+        box = boxes[k]
+        sx, sy = box["box_w_mm"] / W_, box["box_h_mm"] / H_
+        left = box["cx_mm"] - box["box_w_mm"] / 2
+        top = box["cy_mm"] - box["box_h_mm"] / 2
+        layout[k] = {"cx_mm": round(left + (x0 + x1) / 2 * sx, 2), "cy_mm": round(top + (y0 + y1) / 2 * sy, 2),
+                     "width_mm": round((x1 - x0) * sx, 1)}
+    s = load_docx(str(reference)).sections[0]
+    margins = {"top": round(s.top_margin.mm, 2), "bottom": round(s.bottom_margin.mm, 2),
+               "left": round(s.left_margin.mm, 2), "right": round(s.right_margin.mm, 2)}
+    return {"seal_layout": layout, "margins_mm": margins}
+
+
+def source_layout_from_reference_pdf(pdf: Path, signature_png: Path, stamp_pngs: list[Path]) -> dict | None:
+    """Office convention for source pages, measured on an approved PDF: the box the
+    scan is fitted into, and the seal positions (ink centres, mm from top-left)."""
+    import pypdfium2 as pdfium
+    import pypdfium2.raw as pdfium_c
+    import tempfile as _tf
+
+    from .imageprep import remove_background
+    sig_ref = Image.open(signature_png)
+    st_refs = [Image.open(p) for p in stamp_pngs]
+    doc = pdfium.PdfDocument(str(pdf))
+    mm = lambda v: v * 25.4 / 72  # noqa: E731
+    try:
+        for i in range(len(doc)):
+            page = doc[i]
+            pw, ph = page.get_width(), page.get_height()
+            objs = list(page.get_objects(filter=[pdfium_c.FPDF_PAGEOBJ_IMAGE], max_depth=4))
+            if not objs:
+                continue
+            big = max(objs, key=lambda o: (o.get_bounds()[2] - o.get_bounds()[0]) * (o.get_bounds()[3] - o.get_bounds()[1]))
+            l, b, r, t = big.get_bounds()
+            if (r - l) * (t - b) < 0.5 * pw * ph:
+                continue  # not a source page
+            area = {"left": round(mm(l), 1), "right": round(mm(pw - r), 1), "top": round(mm(ph - t), 1),
+                    "bottom": round(mm(b), 1)}
+            seal = {}
+            for o in objs:
+                if o is big:
+                    continue
+                im = o.get_bitmap(render=False).to_pil()
+                s_sig, s_st = similarity(im, sig_ref), max(similarity(im, x) for x in st_refs)
+                key = "signature" if s_sig > s_st else "stamp"
+                if max(s_sig, s_st) < 0.25:
+                    continue
+                ol, ob, or_, ot = o.get_bounds()
+                with _tf.TemporaryDirectory() as td:
+                    src = Path(td) / "i.png"
+                    im.convert("RGB").save(src)
+                    rr = remove_background(src, Path(td) / "o.png")
+                (x0, y0, x1, y1), (W_, H_) = rr["crop"], rr["source_size"]
+                sx, sy = mm(or_ - ol) / W_, mm(ot - ob) / H_
+                seal[key] = {"cx_mm": round(mm(ol) + (x0 + x1) / 2 * sx, 2),
+                             "cy_mm": round(mm(ph - ot) + (y0 + y1) / 2 * sy, 2)}
+            return {"mode": "band", "area_mm": area, "seal": seal}
+    finally:
+        doc.close()
+    return None

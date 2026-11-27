@@ -56,7 +56,7 @@ def test_direction_and_fonts(src, tgt, mode, library, tmp_path):
         # identifiers, dates and numbers are isolated and not marked rtl
         assert f"{LRM}784-1990-1234567-1{LRM}" in text
         assert f"{LRM}14/03/2019{LRM}" in text
-        assert f"{LRM}1.{LRM}" in text  # numbering label survives RTL
+        assert f"{LRM}1{LRM}.{RLM}" in text  # numbering label survives RTL (house style)
         for r in body.iter(f"{W}r"):
             t = "".join(r.itertext())
             if t.startswith(LRM):

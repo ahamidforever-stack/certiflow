@@ -191,17 +191,30 @@ class SourceStampReport:
 
 def stamp_source_pages(images: list[Image.Image], out: Path, page_w: float, page_h: float,
                        seal: SealSpec, footer: SealPlacement, jpeg_quality: int = 80,
-                       margin_mm: float = 5.0, dense_threshold: float = 0.004) -> SourceStampReport:
+                       margin_mm: float = 5.0, dense_threshold: float = 0.004,
+                       source_layout: dict | None = None) -> SourceStampReport:
+    """Two modes. ``overlay`` (default): scan fills the page, seal placed where it covers
+    least ink. ``band`` (office convention from the template): scan fitted into
+    ``area_mm`` and the seal drawn at fixed positions in the free band, so it never
+    covers the source."""
+    band = bool(source_layout and source_layout.get("mode") == "band")
     rep = SourceStampReport(pages=len(images))
     c = rl_canvas.Canvas(str(out), pagesize=(page_w, page_h), pageCompression=1)
     c.setTitle("source")
     tmpd = Path(tempfile.mkdtemp(prefix="srcjpg_"))
     try:
         for i, im in enumerate(images):
-            m = margin_mm * PT_PER_MM
-            scale = min((page_w - 2 * m) / im.width, (page_h - 2 * m) / im.height)
-            w, h = im.width * scale, im.height * scale
-            place = Rect((page_w - w) / 2, (page_h - h) / 2, w, h)
+            if band:
+                a = {k: v * PT_PER_MM for k, v in source_layout["area_mm"].items()}
+                bw, bh = page_w - a["left"] - a["right"], page_h - a["top"] - a["bottom"]
+                scale = min(bw / im.width, bh / im.height)
+                w, h = im.width * scale, im.height * scale
+                place = Rect(a["left"] + (bw - w) / 2, a["bottom"] + (bh - h) / 2, w, h)
+            else:
+                m = margin_mm * PT_PER_MM
+                scale = min((page_w - 2 * m) / im.width, (page_h - 2 * m) / im.height)
+                w, h = im.width * scale, im.height * scale
+                place = Rect((page_w - w) / 2, (page_h - h) / 2, w, h)
             # grayscale scans save as 1-channel JPEG (smaller)
             arr = np.asarray(im.resize((64, 64)), dtype=np.int16)
             is_gray = np.abs(arr[..., 0] - arr[..., 1]).max() < 12 and np.abs(arr[..., 1] - arr[..., 2]).max() < 12
@@ -210,8 +223,16 @@ def stamp_source_pages(images: list[Image.Image], out: Path, page_w: float, page
             c.drawImage(str(jp), place.x, place.y, w, h)
 
             ii = _ink_integral(im, page_w, page_h, place)
-            st, ink_st = choose_position(ii, page_w, page_h, footer.stamp, avoid=None)
-            sg, ink_sg = choose_position(ii, page_w, page_h, footer.signature, avoid=st)
+            if band and {"stamp", "signature"} <= set(source_layout.get("seal", {})):
+                def fixed(key: str, size: Rect) -> Rect:
+                    pos = source_layout["seal"][key]
+                    return Rect(pos["cx_mm"] * PT_PER_MM - size.w / 2,
+                                page_h - pos["cy_mm"] * PT_PER_MM - size.h / 2, size.w, size.h)
+                st, sg = fixed("stamp", footer.stamp), fixed("signature", footer.signature)
+                ink_st, ink_sg = _ink(ii, st, page_h), _ink(ii, sg, page_h)
+            else:
+                st, ink_st = choose_position(ii, page_w, page_h, footer.stamp, avoid=None)
+                sg, ink_sg = choose_position(ii, page_w, page_h, footer.signature, avoid=st)
             c.drawImage(str(seal.signature_png), sg.x, sg.y, sg.w, sg.h, mask="auto")
             c.drawImage(str(seal.stamp_png), st.x, st.y, st.w, st.h, mask="auto")
             t = c.beginText(2, 2)

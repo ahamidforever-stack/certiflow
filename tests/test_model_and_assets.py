@@ -47,7 +47,7 @@ def test_profiles_cover_required_languages():
     for p in all_profiles():
         assert p.labels.unreadable_illegible and p.style_guide and p.ocr_pack
     assert get_profile("ar").direction.value == "rtl" and get_profile("ar").word_font == "Sakkal Majalla"
-    assert get_profile("ar").body_size_pt == 14 and get_profile("ar").pdf_font == "Amiri"
+    assert get_profile("ar").body_size_pt == 13 and get_profile("ar").pdf_font == "Amiri"
     assert get_profile("en").word_font == "Times New Roman"
 
 

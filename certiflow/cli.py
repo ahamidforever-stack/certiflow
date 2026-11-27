@@ -91,9 +91,31 @@ def cmd_setup_office(args) -> int:
     m = setup_office(Path(args.template), Path(args.signature), Path(args.certified_stamp), Path(args.office_stamp),
                      Path(args.out), company=args.company, translator_id=args.translator_id,
                      translator_name=args.translator_name, certified_width_mm=args.certified_width_mm,
-                     office_width_mm=args.office_width_mm, signature_width_mm=args.signature_width_mm)
+                     office_width_mm=args.office_width_mm, signature_width_mm=args.signature_width_mm,
+                     reference_docx=Path(args.reference_docx) if args.reference_docx else None,
+                     reference_pdf=Path(args.reference_pdf) if args.reference_pdf else None)
     print(Path(m).read_text("utf-8"))
     return 0
+
+
+def cmd_golden(args) -> int:
+    from .golden import import_docx, run_golden_set
+    from .house import HouseStyle
+    if args.action == "import":
+        m = import_docx(Path(args.path), args.source_lang, args.target_lang, HouseStyle())
+        print(m.model_dump_json(indent=1, exclude_defaults=True))
+        return 0
+    lib = AssetLibrary(Path(args.library))
+    res = run_golden_set(Path(args.path), lib, args.user, Path(args.out))
+    bad = 0
+    for r in res:
+        pages = "" if r.tr_pages is None else f"  translation pages {r.tr_pages}" + (
+            f" (approved {r.approved_tr_pages})" if r.approved_tr_pages is not None else "")
+        print(f"{'PASS' if r.body_exact else 'FAIL'}  {r.pair}/{r.case}: body {r.body_identical}/{r.body_total}{pages}")
+        for d in r.diffs[:3]:
+            print("      " + d[:300])
+        bad += not r.body_exact
+    return 1 if bad else 0
 
 
 def cmd_schema(args) -> int:
@@ -153,9 +175,21 @@ def main(argv=None) -> int:
               "--translator-name"):
         so.add_argument(a, required=True)
     so.add_argument("--company", default="shoreline")
+    so.add_argument("--reference-docx", help="an approved output: seal size/position and margins are taken from it")
+    so.add_argument("--reference-pdf", help="the approved PDF: source-page layout (scan area, seal band) is taken from it")
     for a in ("--certified-width-mm", "--office-width-mm", "--signature-width-mm"):
         so.add_argument(a, type=float)
     so.set_defaults(fn=cmd_setup_office)
+
+    gd = sub.add_parser("golden", help="golden set: import an approved .docx, or rebuild and compare a whole set")
+    gd.add_argument("action", choices=["import", "run"])
+    gd.add_argument("path")
+    gd.add_argument("--source-lang", default="en")
+    gd.add_argument("--target-lang", default="ar")
+    gd.add_argument("--library")
+    gd.add_argument("--user")
+    gd.add_argument("--out", default="out/golden_run")
+    gd.set_defaults(fn=cmd_golden)
 
     sc = sub.add_parser("schema")
     sc.add_argument("out", nargs="?")

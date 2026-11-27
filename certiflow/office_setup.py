@@ -10,13 +10,14 @@ import shutil
 from pathlib import Path
 
 from .imageprep import remove_background
-from .templates import import_template
+from .templates import import_template, seal_from_reference, source_layout_from_reference_pdf
 
 
 def setup_office(template: Path, signature: Path, certified_stamp: Path, office_stamp: Path, out: Path, *,
                  company: str, translator_id: str, translator_name: str,
                  certified_width_mm: float | None = None, office_width_mm: float | None = None,
-                 signature_width_mm: float | None = None) -> Path:
+                 signature_width_mm: float | None = None, reference_docx: Path | None = None,
+                 reference_pdf: Path | None = None) -> Path:
     out.mkdir(parents=True, exist_ok=True)
     for d in ("templates", "stamps", "signatures"):
         (out / d).mkdir(exist_ok=True)
@@ -31,12 +32,20 @@ def setup_office(template: Path, signature: Path, certified_stamp: Path, office_
         "office": remove_background(office_stamp, ost),
     }
     imp = import_template(tpl, sig, [cst, ost])
+    margins = None
+    if reference_docx:
+        # an approved output decides seal size, position and margins (what the office actually prints)
+        ref = seal_from_reference(reference_docx, sig, [cst, ost])
+        imp["seal_layout"] = ref["seal_layout"] or imp["seal_layout"]
+        margins = ref["margins_mm"]
+    source_layout = source_layout_from_reference_pdf(reference_pdf, sig, [cst, ost]) if reference_pdf else None
 
     # Physical sizes: the ink width the office used in its own template; office stamp defaults to the same.
     from .templates import baked_seal_images, classify
     baked = classify(baked_seal_images(tpl), sig, [cst, ost])
-    sig_w = signature_width_mm or _baked_ink_width(baked.get("signature")) or 44.0
-    cst_w = certified_width_mm or _baked_ink_width(baked.get("stamp")) or 45.0
+    lay = imp["seal_layout"] or {}
+    sig_w = signature_width_mm or lay.get("signature", {}).get("width_mm") or _baked_ink_width(baked.get("signature")) or 44.0
+    cst_w = certified_width_mm or lay.get("stamp", {}).get("width_mm") or _baked_ink_width(baked.get("stamp")) or 45.0
     ost_w = office_width_mm or cst_w
 
     manifest = {
@@ -47,7 +56,8 @@ def setup_office(template: Path, signature: Path, certified_stamp: Path, office_
         ],
         "assets": [
             {"id": "tpl-office", "name": "Office template", "type": "template", "path": "templates/office_template.docx",
-             "seal_layout": imp["seal_layout"], "strip_footer_images": imp["strip_footer_images"]},
+             "seal_layout": imp["seal_layout"], "strip_footer_images": imp["strip_footer_images"],
+             "margins_mm": margins, "house_style": {}, "source_layout": source_layout},
             {"id": f"stamp-certified-{translator_id}", "name": f"Certified stamp - {translator_name}",
              "type": "stamp_certified", "path": f"stamps/certified_{translator_id}.png",
              "owner_user": translator_id, "width_mm": cst_w},

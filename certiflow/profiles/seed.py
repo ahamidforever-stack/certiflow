@@ -24,7 +24,7 @@ LATIN_FONT = ("Times New Roman", "Liberation Serif")   # Liberation Serif is met
 
 P = [
     dict(code="ar", display_name="Arabic", native_name="العربية", script="Arab", direction="rtl", word_tag="ar-AE",
-         font_slot="cs", word_font="Sakkal Majalla", pdf_font="Amiri", body_size_pt=14, heading_scale=1.2,
+         font_slot="cs", word_font="Sakkal Majalla", pdf_font="Amiri", body_size_pt=13, heading_scale=1.15,
          line_spacing=1.0, digit_style="as_source", quote_marks=["«", "»"],
          transliteration_standard="common Arabic rendering (UAE official usage where known)",
          name_rule="Transliterate names of people, companies, streets and places into Arabic script. Use the "
