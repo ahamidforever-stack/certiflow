@@ -30,6 +30,30 @@ def _chunks(items: list, n: int) -> Iterable[list]:
         yield items[i:i + n]
 
 
+def units(blocks: list[Block], max_blocks: int, max_pages: int) -> Iterable[list[Block]]:
+    """Split a document into translation units, in order.
+
+    A unit closes when it reaches ``max_blocks`` blocks or would span more than ``max_pages``
+    source pages, whichever comes first. A long document (e.g. 300 pages) is therefore
+    translated unit by unit, each with the shared glossary and the end of the previous unit
+    as context, and every unit writes back into the same document model, so the Builder
+    produces one Word file and one PDF for the whole document.
+    """
+    cur: list[Block] = []
+    first_page = None
+    for b in blocks:
+        page = b.source_page or first_page or 1
+        if cur and (len(cur) >= max_blocks or
+                    (first_page is not None and page - first_page + 1 > max(1, max_pages))):
+            yield cur
+            cur, first_page = [], None
+        if first_page is None:
+            first_page = page
+        cur.append(b)
+    if cur:
+        yield cur
+
+
 def translatable(doc: Document) -> list[Block]:
     return [b for b in doc.blocks if b.type != BlockType.page_break and not b.multilingual_duplicate]
 
@@ -177,7 +201,7 @@ def translate(ctx: AgentContext, doc: Document, only: set[str] | None = None,
     todo = [b for b in translatable(doc) if only is None or b.id in only]
     order = [b.id for b in translatable(doc)]
     by_id = {b.id: b for b in doc.blocks}
-    for chunk in _chunks(todo, st.chunk_blocks):
+    for chunk in units(todo, st.chunk_blocks, st.chunk_max_pages):
         first = order.index(chunk[0].id)
         ctx_blocks = [by_id[i] for i in order[max(0, first - st.context_overlap_blocks):first]]
         payload = {"translate": [_src_payload(b) for b in chunk],
@@ -244,7 +268,7 @@ def proofread(ctx: AgentContext, doc: Document, only: set[str] | None = None) ->
     by_id = {b.id: b for b in doc.blocks}
     todo = [b for b in translatable(doc) if only is None or b.id in only]
     applied = []
-    for chunk in _chunks(todo, st.chunk_blocks):
+    for chunk in units(todo, st.chunk_blocks, st.chunk_max_pages):
         res = call_agent(ctx, "proofreader", ProofreaderOut, {"blocks": [_pair_payload(b) for b in chunk]},
                          instruction=f"Proofread these {len(chunk)} blocks.")
         for ch in res.data.changes:
@@ -311,7 +335,7 @@ def qa(ctx: AgentContext, doc: Document, only: set[str] | None = None) -> list[Q
     auto = deterministic_qa(ctx, doc, only)
     todo = [b for b in translatable(doc) if only is None or b.id in only]
     model_issues: list[QAIssue] = []
-    for chunk in _chunks(todo, st.chunk_blocks):
+    for chunk in units(todo, st.chunk_blocks, st.chunk_max_pages):
         ids = {b.id for b in chunk}
         res = call_agent(ctx, "qa", QAOut, {"blocks": [_pair_payload(b) for b in chunk],
                                             "automated_findings": [i.model_dump() for i in auto if i.id in ids]},

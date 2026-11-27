@@ -63,7 +63,7 @@ For real translations, set `CERTIFLOW_LLM=anthropic` and `CERTIFLOW_ANTHROPIC_AP
 ## 4. Tests
 
 ```bash
-pytest -q                       # 62 tests, ~90 s, offline (needs LibreOffice + Tesseract)
+pytest -q                       # 64 tests, ~2.5 min, offline (needs LibreOffice + Tesseract)
 pytest -q tests/test_web.py     # web API only
 (cd web && npm run build)       # strict TypeScript check + production build
 certiflow golden run inputs/golden_set --library assets/shoreline/library.json --user amir.gomaa      # exact rebuild check (office files)

@@ -17,6 +17,7 @@
   },
   "pipeline": {
     "chunk_blocks": 40,
+    "chunk_max_pages": 20,
     "context_overlap_blocks": 3,
     "qa_max_loops": 2,
     "validation_retries": 2,

@@ -86,7 +86,7 @@ Full JSON Schema: `certiflow schema`.
 | Intake | claude-sonnet-5-5 | page image (max 1600 px) + Tesseract draft at 300 dpi + low-confidence lines | `IntakePageOut` | blocks, page inventory, joins across pages, document-end notes |
 | Intake zoom | claude-sonnet-5-5 | 2x crop of an uncertain region | `ZoomOut` | replaces the reading if more confident; flags covered/illegible |
 | Glossary | claude-opus-5-5 | all source text of the batch | `GlossaryOut` | proposed list, human confirms (graph interrupt) |
-| Translator | claude-opus-5-5, effort high | chunks of 40 blocks + 3 blocks of context + fix requests | `TranslatorOut` | text, table cells (shape checked), labels, history |
+| Translator | claude-opus-5-5, effort high | units of ≤40 blocks / ≤20 pages + 3 blocks of context + fix requests | `TranslatorOut` | text, table cells (shape checked), labels, history |
 | Proofreader | claude-opus-5-5 | source + translation | `ProofreaderOut` (tracked changes with reasons) | history entries per change |
 | QA | claude-opus-5-5 | source + translation + automated findings | `QAOut` | flags; blockers loop back (max 2) |
 | Formatter | claude-sonnet-5-5 | block types + excerpts | `FormatterOut` | type/level/alignment/column widths, page break before an apostille |

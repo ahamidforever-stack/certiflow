@@ -63,7 +63,7 @@ Legend: ✅ done and tested · 🟡 partial / different from brief (see notes) �
 | 3 | Builder deterministic, never LLM-written XML | ✅ | |
 | 3 | Human final review with side-by-side editor | 🟡 | Approval gate works; editor is a read-only preview; the side-by-side editor is Phase 4 |
 | 3 | QA loop max 2, then flag for human | ✅ | Unresolved blockers block the release |
-| 3 | Chunking with overlap, shared glossary | ✅ | 40 blocks per chunk, 3 blocks of context |
+| 3 | Chunking with overlap, shared glossary | ✅ | Units of at most 40 blocks or 20 pages, 3 blocks of context, recombined into one document (§5.5) |
 | 3 | Glossary confirmed once per batch | ✅ | One glossary per job; per-pair glossaries in mixed batches are open |
 | 3.1 | LangGraph with conditional loop + interrupt + Postgres checkpointer | 🟡 | Graph + interrupts + Postgres/SQLite checkpointer ✅. The QA loop and per-document parallelism run inside the `process_all` node (code-level loop, thread pool), not as graph edges |
 | 3.1 | Anthropic SDK, structured outputs, validation retry | ✅ | JSON outputs (`output_config.format`), not forced tool use (forced `tool_choice` is rejected by current models) |
@@ -94,7 +94,7 @@ Legend: ✅ done and tested · 🟡 partial / different from brief (see notes) �
 | 8 | Encryption at rest, retention/auto-delete, per-client access | ⬜ | Phase 5 (TLS via reverse proxy at deployment) |
 | 8 | API key server-side only | ✅ | |
 | 8 | Release only after certified approval; open blockers block | ✅ | |
-| 9 | Builder tests across the pair matrix, stamp overlap tests | ✅ | 62 tests |
+| 9 | Builder tests across the pair matrix, stamp overlap tests | ✅ | 64 tests |
 | 9 | Golden set per pair + scoring harness | ✅ | `certiflow golden run|score` |
 
 ---
@@ -212,7 +212,7 @@ profile's body size. The Shoreline defaults, measured from the office's approved
 | Intake | claude-sonnet-5-5 | page image (≤1600 px) + Tesseract draft (300 dpi) + low-confidence lines + end of the previous page | `IntakePageOut`: blocks, languages, rotation, artefacts removed, uncertain regions | blocks, page inventory, joins across page breaks, document-end notes, low-confidence flags |
 | Intake zoom | claude-sonnet-5-5 | 2× crop of each uncertain region | `ZoomOut` | replaces the reading if more confident; flags covered/illegible |
 | Glossary | claude-opus-5-5 | all source text of the batch | `GlossaryOut` | proposed list; a human confirms it |
-| Translator | claude-opus-5-5, effort high | chunks of 40 blocks + 3 blocks of context + fix requests | `TranslatorOut` | text, table cells (shape checked → blocker), labels, history |
+| Translator | claude-opus-5-5, effort high | units of ≤40 blocks / ≤20 pages + 3 blocks of context + fix requests (§5.5) | `TranslatorOut` | text, table cells (shape checked → blocker), labels, history |
 | Proofreader | claude-opus-5-5 | source + translation | `ProofreaderOut` (tracked changes with category and reason) | one history entry per change |
 | QA | claude-opus-5-5 | source + translation + automated findings | `QAOut` (blocker / major / minor) | flags on blocks |
 | Formatter | claude-sonnet-5-5 | types + excerpts | `FormatterOut` | type/level/alignment/widths, page break before an apostille |
@@ -270,6 +270,30 @@ sessions do not pass `ANTHROPIC_API_KEY` through.
 - **Audit:** `jobs/<id>/audit.jsonl`. One record per model call (agent, model, prompt version, effort, usage with
   cached tokens, cost, latency, retries, request id, user prompt, response) plus stage, approval and release events.
   The audit holds document text, so it follows the same confidentiality rules as the documents.
+
+### 5.5 Large documents (splitting and combining)
+Any length works: 5 pages or 300. Nothing changes for the user, who still gets **one** Word file and **one** PDF per
+document.
+
+1. **Reading:** Intake reads every page separately (OCR plus vision), so length does not matter at this step.
+2. **Splitting into units:** Translator, Proofreader and QA work in **translation units**, in document order. A unit
+   closes when it reaches **40 blocks** (`pipeline.chunk_blocks`) or would span more than **20 source pages**
+   (`pipeline.chunk_max_pages`), whichever comes first. Dense pages make smaller units, which keeps each model call
+   well inside its output limit. Both limits are settings in `config/agents.json`.
+3. **Consistency across units:**
+   - every unit carries the job's **confirmed glossary**, so names and terms are identical everywhere
+   - each unit also gets the **last 3 translated blocks** of the previous unit as context, so a sentence or term
+     continues correctly across the boundary
+   - paragraphs split by a page break were already joined at Intake
+4. **Combining:** every unit writes its results back into the **same document model**, in original order. The
+   Formatter and the Builder then work on the **whole document at once**, which produces one translation, one Word
+   file and one integrated PDF.
+5. **Failures:** a unit that fails is retried on its own; finished units are kept on disk, so a long job resumes where
+   it stopped. The QA fix loop re-translates only the blocks with blockers, not whole units.
+
+Units of one document run **in sequence** (each needs the previous unit's ending as context). Different documents in
+a batch run in parallel. Possible later optimisation: run units in parallel with a glossary-only context, trading a
+little continuity for speed on very long documents.
 
 ---
 
@@ -512,7 +536,7 @@ Celery worker container; checkpoints are stored in PostgreSQL; Sakkal Majalla is
 
 ## 11. Testing
 
-`pytest -q` runs **62 tests**, offline on the mock client, with real OCR, LibreOffice and the Builder. About 90 s.
+`pytest -q` runs **64 tests**, offline on the mock client, with real OCR, LibreOffice and the Builder. About 90 s.
 
 | File | Covers |
 |---|---|
@@ -521,7 +545,7 @@ Celery worker container; checkpoints are stored in PostgreSQL; Sakkal Majalla is
 | `test_pdf_package.py` | full packages per pair, verification gate (blocks an unstamped page), same seal size on every page, no text under the seal, interleaved order, 24-page size budget, least-ink placement, office stamp |
 | `test_office_assets.py` | background removal, template seal import, anchored seal on odd/even pages, RTL identifiers read left-to-right in the rendered PDF |
 | `test_golden.py` | builder ↔ importer round trip; the office golden set rebuilds exactly with matching page counts (skipped without the confidential files) |
-| `test_pipeline.py` | strict schemas, end to end for 3 pairs (incl. an RTL source), QA loop fixes an injected error, persistent blockers block the release, only certified translators approve, crash resume, real-client request shape |
+| `test_pipeline.py` | strict schemas, end to end for 3 pairs (incl. an RTL source), QA loop fixes an injected error, persistent blockers block the release, only certified translators approve, crash resume, real-client request shape, large documents split into units and recombined |
 | `test_web.py` | auth + CSRF, reference endpoints, stamp required and checked, full web lifecycle (gates, approve, downloads, SSE without document text, job isolation), Word source + per-document pairs |
 
 **Frontend:** `npm run build` type-checks with `strict`. A Playwright walkthrough (upload, stamp, glossary,

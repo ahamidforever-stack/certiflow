@@ -28,6 +28,7 @@ class Price(BaseModel):
 
 class PipelineSettings(BaseModel):
     chunk_blocks: int = 40
+    chunk_max_pages: int = 20               # a translation unit never spans more source pages than this
     context_overlap_blocks: int = 3
     qa_max_loops: int = 2
     validation_retries: int = 2
