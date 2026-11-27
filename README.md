@@ -3,7 +3,14 @@
 Certified translation platform: source document → agent pipeline → human approval → signed and stamped Word +
 one integrated PDF (translation pages, then the stamped source pages).
 
-Status: **Phase 3 (web app)**. See `docs/ARCHITECTURE.md` and `docs/PROMPT_VERSIONING.md`.
+Status: **Phase 3 (web app)**.
+
+**Start here:**
+- `docs/SPEC.md`: technical specification and handover (status against the brief, architecture, API, security,
+  deployment, roadmap)
+- `docs/DEVELOPER_GUIDE.md`: setup, running, tests, code map, conventions
+- `docs/BRIEF.md`: the original product requirements
+- More: `docs/ARCHITECTURE.md`, `docs/PROMPT_VERSIONING.md`, `docs/openapi.json`, `docs/document.schema.json`
 
 ## Setup
 
