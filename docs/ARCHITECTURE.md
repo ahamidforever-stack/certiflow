@@ -78,3 +78,44 @@ Full JSON Schema: `certiflow schema`.
 4. **"Same footer position" vs "least ink".** These can conflict on source pages. Implemented as: footer position by
    default, moved only when that clearly reduces overlap, and disclosed when no clean spot exists.
 5. **PyMuPDF is not used** (AGPL). pypdfium2 (BSD/Apache) is used for geometry checks.
+
+## Phase 2: agents and pipeline
+
+| Agent | Model (config) | Input | Output contract | Applied by code |
+|---|---|---|---|---|
+| Intake | claude-sonnet-5-5 | page image (max 1600 px) + Tesseract draft at 300 dpi + low-confidence lines | `IntakePageOut` | blocks, page inventory, joins across pages, document-end notes |
+| Intake zoom | claude-sonnet-5-5 | 2x crop of an uncertain region | `ZoomOut` | replaces the reading if more confident; flags covered/illegible |
+| Glossary | claude-opus-5-5 | all source text of the batch | `GlossaryOut` | proposed list, human confirms (graph interrupt) |
+| Translator | claude-opus-5-5, effort high | chunks of 40 blocks + 3 blocks of context + fix requests | `TranslatorOut` | text, table cells (shape checked), labels, history |
+| Proofreader | claude-opus-5-5 | source + translation | `ProofreaderOut` (tracked changes with reasons) | history entries per change |
+| QA | claude-opus-5-5 | source + translation + automated findings | `QAOut` | flags; blockers loop back (max 2) |
+| Formatter | claude-sonnet-5-5 | block types + excerpts | `FormatterOut` | type/level/alignment/column widths, page break before an apostille |
+
+Automated QA runs before the model's QA and needs no model:
+- figures missing from the translation, and figures added to it
+- identifiers not kept exactly as written
+- empty translations
+- leftover source-script text (allow-list: identifiers, underscores, quoted labels, glossary)
+- stray punctuation
+
+Every model call uses:
+- structured JSON output, with the output validated and retried with the error fed back
+- adaptive thinking, with effort set per agent
+- streaming
+- the system prompt as a cached prefix
+- the server-side refusal fallback
+- backoff on rate limits and overload
+
+The client sits behind `LLMClient`. `MockClient` and `RecordingClient` replay offline.
+
+Orchestration is a LangGraph `StateGraph` with a SQLite checkpointer, which becomes PostgreSQL in Phase 3:
+`intake_all → glossary → confirm_glossary (interrupt) → process_all → review (interrupt) → release`.
+
+Documents run in parallel threads, and the stages of one document run in sequence. Each stage writes
+`docs/<id>.<stage>.json` and skips work already on disk, so a crash resumes at the failed stage.
+
+Departures from the brief (Phase 2):
+- **Celery/Redis:** not used yet. Phase 2 is a CLI; the same `Job` runs inside Celery workers in Phase 3.
+- **Batch API ("bulk, lower cost"):** comes with the queue in Phase 3.
+- **Langfuse tracing:** comes in Phase 5. Our own audit log is complete.
+- **Intake zoom:** uses a plain Messages API call, not the Claude Agent SDK (see "Changes to the brief").

@@ -3,13 +3,40 @@
 Certified translation platform: source document → agent pipeline → human approval → signed and stamped Word +
 one integrated PDF (translation pages, then the stamped source pages).
 
-Status: **Phase 1 (core engine, CLI)**. See `docs/ARCHITECTURE.md`.
+Status: **Phase 2 (agents and language profiles, CLI)**. See `docs/ARCHITECTURE.md` and `docs/PROMPT_VERSIONING.md`.
 
 ## Setup
 
 ```bash
 pip install -e .[dev]
 # system: LibreOffice, poppler-utils, tesseract + language packs, fonts (Amiri, Noto, Liberation) - see requirements-system.txt
+```
+
+## Translate (agent pipeline)
+
+```bash
+export ANTHROPIC_API_KEY=...            # server environment only; never in code or the browser
+certiflow translate source.pdf --from en --to ar --stamp certified --user amir.gomaa \
+  --library assets/shoreline/library.json --job-dir jobs/J001
+certiflow job confirm-glossary jobs/J001 --by amir.gomaa [--file edited_glossary.json]
+#   review jobs/J001/docs/d01.formatted.json (Phase 4 adds the side-by-side editor)
+certiflow job approve jobs/J001 --by amir.gomaa
+certiflow job status jobs/J001          # stages, open flags, cost per agent
+```
+
+The pipeline runs Intake (OCR plus a vision check), then the Glossary step, where it pauses for a person to confirm.
+It then runs Translator, Proofreader and QA (blockers loop back to the Translator, at most twice), then the Formatter,
+and pauses again for the final review. Only after approval by a certified translator does the Builder apply the stamp
+and signature. A crashed job resumes where it stopped: `certiflow job resume jobs/J001`. Add `--mock` to any command to run
+offline with pseudo-translations (for testing only).
+
+Models, effort and prompt versions per agent are in `config/agents.json`. Every call is logged to `jobs/<id>/audit.jsonl`
+with the model, prompt version, tokens, cache hits, cost, latency and retries.
+
+Score the pipeline against approved translations:
+
+```bash
+certiflow golden score inputs/golden_set --library assets/shoreline/library.json --user amir.gomaa
 ```
 
 ## Office setup (real template, stamps, signature)

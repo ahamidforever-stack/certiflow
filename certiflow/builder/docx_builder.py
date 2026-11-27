@@ -440,6 +440,8 @@ def render(model: Document, template: Path, out: Path, opts: BuildOptions) -> Pa
     current_page = None
     interleave = opts.page_order == PageOrder.interleaved
     for b in model.blocks:
+        if b.multilingual_duplicate:
+            continue  # same text already translated from another language on the page (disclosed)
         if interleave and b.source_page and b.source_page != current_page:
             if current_page is not None:
                 _page_break(tmp)

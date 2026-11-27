@@ -106,6 +106,8 @@ def cmd_golden(args) -> int:
         print(m.model_dump_json(indent=1, exclude_defaults=True))
         return 0
     lib = AssetLibrary(Path(args.library))
+    if args.action == "score":
+        return _golden_score(args, lib)
     res = run_golden_set(Path(args.path), lib, args.user, Path(args.out))
     bad = 0
     for r in res:
@@ -128,6 +130,116 @@ def cmd_fonts(args) -> int:
         used = p.pdf_font if ok or not p.pdf_font_fallback else p.pdf_font_fallback
         print(f"{p.code:3} pdf font {p.pdf_font:22} {'installed' if ok else 'MISSING':9} -> PDF uses {used}")
     return 0
+
+
+def _client(mock_target: str | None):
+    from .settings import load
+    if mock_target:
+        from .llm.mock_agents import make_mock
+        print("NOTE: --mock uses offline pseudo-translations for testing; the output is not a real translation.")
+        return make_mock(mock_target)
+    import os
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        sys.exit("error: ANTHROPIC_API_KEY is not set in this environment (or run with --mock for an offline test run)")
+    from .llm.client import AnthropicClient
+    st = load()
+    return AnthropicClient(fallbacks=st.fallbacks, validation_retries=st.pipeline.validation_retries)
+
+
+def _print_run(r: dict, job) -> None:
+    import json as _j
+    print(f"stage: {r['stage']}")
+    for w in r.get("waiting") or []:
+        if w.get("waiting_for") == "glossary_confirmation":
+            print(f"WAITING: glossary confirmation ({w['proposed']} proposed) -> edit {w['file']} if needed, then:"
+                  f"\n  certiflow job confirm-glossary {job.dir} --by <user>")
+        elif w.get("waiting_for") == "final_review":
+            print("WAITING: final review by a certified translator. Review the model files:")
+            for k, v in w["documents"].items():
+                print(f"  {k}: {v}")
+            print(f"  then: certiflow job approve {job.dir} --by <certified translator id>")
+    if r.get("released"):
+        print("RELEASED:")
+        for p in r["released"]:
+            print("  " + p)
+    print(_j.dumps(job.status()["cost"], indent=1))
+
+
+def cmd_translate(args) -> int:
+    from .pipeline.job import Job
+    job_spec = _job(args)
+    lib = AssetLibrary(Path(args.library))
+    lib.stamp_for(job_spec.stamp, job_spec.user_id)   # fail early if the user may not apply this stamp
+    jd = Job.create(Path(args.job_dir), [Path(s) for s in args.sources], args.source_lang, args.target_lang,
+                    job_spec, Path(args.library))
+    job = Job(jd, _client(args.target_lang if args.mock else None))
+    r = job.run()
+    if args.auto_confirm_glossary and r["waiting"] and r["waiting"][0].get("waiting_for") == "glossary_confirmation":
+        r = job.run(resume={"by": args.user})
+    _print_run(r, job)
+    return 0
+
+
+def cmd_job(args) -> int:
+    import json as _j
+    from .pipeline.job import Job
+    meta = _j.loads((Path(args.job_dir) / "job.json").read_text("utf-8"))
+    tgt = meta["documents"][0]["target_language"]
+    job = Job(Path(args.job_dir), _client(tgt if args.mock else None))
+    if args.action == "status":
+        print(_j.dumps(job.status(), indent=1, ensure_ascii=False))
+        return 0
+    if args.action == "confirm-glossary":
+        ans = {"by": args.by}
+        if args.file:
+            ans["glossary"] = _j.loads(Path(args.file).read_text("utf-8"))
+        r = job.run(resume=ans)
+    elif args.action == "approve":
+        if args.reviewed:
+            import shutil
+            for f in Path(args.reviewed).glob("*.json"):
+                shutil.copy(f, job.dir / "docs" / f.name.replace(".formatted.", ".reviewed."))
+        r = job.run(resume={"approved_by": args.by, "note": args.note})
+    else:
+        r = job.run()
+    _print_run(r, job)
+    return 0
+
+
+def _golden_score(args, lib) -> int:
+    """Run the agent pipeline on every golden case's source and score it against the approved translation."""
+    from .golden import extract_source_from_approved_pdf, import_docx, score_against_approved
+    from .house import HouseStyle
+    from .model import JobSpec
+    from .pipeline.job import Job
+    root, out = Path(args.path), Path(args.out)
+    failed = 0
+    for pair_dir in sorted(p for p in root.iterdir() if p.is_dir() and "-" in p.name):
+        src, tgt = pair_dir.name.split("-", 1)
+        for case in sorted(p for p in pair_dir.iterdir() if p.is_dir()):
+            source = next(iter(sorted(case.glob("source.*"))), None)
+            if source is None and (case / "approved.pdf").exists():
+                source = extract_source_from_approved_pdf(case / "approved.pdf", case / "source.pdf")
+            if source is None:
+                print(f"SKIP  {pair_dir.name}/{case.name}: no source document")
+                continue
+            jd = out / pair_dir.name / case.name
+            if not (jd / "job.json").exists():
+                Job.create(jd, [source], src, tgt, JobSpec(stamp="certified", user_id=args.user), Path(args.library),
+                           titles=[case.name])
+            job = Job(jd, _client(tgt if args.mock else None))
+            r = job.run()
+            if r["waiting"] and r["waiting"][0].get("waiting_for") == "glossary_confirmation":
+                job.run(resume={"by": args.user})
+            output = job.load_doc("d01", "formatted")
+            approved = import_docx(case / "approved.docx", src, tgt, HouseStyle())
+            s = score_against_approved(case.name, output, approved)
+            cost = sum(a["cost_usd"] for a in job.audit_totals().values())
+            print(f"{'PASS' if s.passed else 'FAIL'}  {pair_dir.name}/{case.name}: figures {s.figures_recall:.0%}  "
+                  f"ids {s.identifiers_recall:.0%}  length x{s.length_ratio}  leftover {s.leftover_findings}  "
+                  f"open blockers {s.open_blockers}  cost ${cost:.2f}")
+            failed += not s.passed
+    return 1 if failed else 0
 
 
 def cmd_schema(args) -> int:
@@ -194,19 +306,40 @@ def main(argv=None) -> int:
     so.set_defaults(fn=cmd_setup_office)
 
     gd = sub.add_parser("golden", help="golden set: import an approved .docx, or rebuild and compare a whole set")
-    gd.add_argument("action", choices=["import", "run"])
+    gd.add_argument("action", choices=["import", "run", "score"])
     gd.add_argument("path")
     gd.add_argument("--source-lang", default="en")
     gd.add_argument("--target-lang", default="ar")
     gd.add_argument("--library")
     gd.add_argument("--user")
     gd.add_argument("--out", default="out/golden_run")
+    gd.add_argument("--mock", action="store_true", help="score: offline pseudo-translation (tests the harness only)")
     gd.set_defaults(fn=cmd_golden)
 
     fo = sub.add_parser("fonts", help="install licensed office fonts / show which PDF font each language uses")
     fo.add_argument("action", choices=["install", "status"])
     fo.add_argument("dir", nargs="?", default="assets/fonts")
     fo.set_defaults(fn=cmd_fonts)
+
+    tr = sub.add_parser("translate", help="run the agent pipeline on source documents (stops at human gates)")
+    tr.add_argument("sources", nargs="+")
+    tr.add_argument("--from", dest="source_lang", required=True, help="source language code, or auto")
+    tr.add_argument("--to", dest="target_lang", required=True)
+    tr.add_argument("--job-dir", required=True)
+    tr.add_argument("--auto-confirm-glossary", action="store_true")
+    tr.add_argument("--mock", action="store_true", help="offline pseudo-translation (testing only)")
+    job_args(tr)
+    tr.set_defaults(fn=cmd_translate)
+
+    jb = sub.add_parser("job", help="status / confirm-glossary / approve / resume a job")
+    jb.add_argument("action", choices=["status", "confirm-glossary", "approve", "resume"])
+    jb.add_argument("job_dir")
+    jb.add_argument("--by")
+    jb.add_argument("--file", help="edited glossary JSON")
+    jb.add_argument("--reviewed", help="directory with reviewed model files (<doc>.formatted.json edited)")
+    jb.add_argument("--note")
+    jb.add_argument("--mock", action="store_true")
+    jb.set_defaults(fn=cmd_job)
 
     sc = sub.add_parser("schema")
     sc.add_argument("out", nargs="?")

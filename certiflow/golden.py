@@ -470,3 +470,50 @@ def run_golden_set(root: Path, library, user_id: str, outdir: Path, stamp: str =
             results.append(CaseResult(case.name, pair_dir.name, c.exact, c.identical, c.golden_elements, tr_pages,
                                       approved_translation_pages(apdf) if apdf.exists() else None, c.diffs))
     return results
+
+
+# ------------------------------------------------------------------ scoring (pipeline vs approved)
+
+_FIGS = re.compile(r"\d[\d/.,:-]*\d|\d")
+
+
+def _all_text(doc: Document) -> str:
+    parts = []
+    for b in doc.blocks:
+        if b.multilingual_duplicate:
+            continue
+        parts.append(b.translated_text)
+        parts += [c.translated_text for r in b.rows for c in r.cells]
+        for r in b.rows:
+            for c in r.cells:
+                for blk in c.blocks or []:
+                    parts.append(blk.translated_text)
+    return "\n".join(p for p in parts if p).replace(LRM, "").replace(RLM, "")
+
+
+@dataclass
+class Score:
+    case: str
+    figures_recall: float          # figures in the approved translation that the pipeline output also has
+    identifiers_recall: float      # IDs/codes/emails in the approved translation found in the output
+    length_ratio: float            # output characters / approved characters
+    leftover_findings: int         # leftover source-script findings in the output
+    open_blockers: int
+    passed: bool
+
+
+def score_against_approved(case: str, output: Document, approved: Document,
+                           min_figures: float = 0.95, min_ids: float = 0.95,
+                           length_band: tuple[float, float] = (0.75, 1.35)) -> Score:
+    from .qa.scan import _IDENT, leftover_source_script
+    from .model import Severity
+    a, o = _all_text(approved), _all_text(output)
+    af, of_ = set(_FIGS.findall(a)), set(_FIGS.findall(o))
+    ai, oi = set(_IDENT.findall(a)), o
+    fig = len(af & of_) / len(af) if af else 1.0
+    ids = sum(1 for x in ai if x in oi) / len(ai) if ai else 1.0
+    ratio = len(o) / max(1, len(a))
+    left = len(leftover_source_script(output))
+    blockers = sum(1 for b in output.blocks for f in b.flags if f.severity == Severity.blocker and not f.resolved)
+    ok = fig >= min_figures and ids >= min_ids and length_band[0] <= ratio <= length_band[1] and blockers == 0
+    return Score(case, round(fig, 3), round(ids, 3), round(ratio, 3), left, blockers, ok)

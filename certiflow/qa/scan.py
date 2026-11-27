@@ -13,8 +13,11 @@ from ..model import Block, BlockType, Document
 from ..profiles import resolve_pair
 from ..textdir import LRI, LRM, PDI, RLI, RLM, SCRIPT_RANGES, char_script
 
+QUOTED = re.compile(r"«[^»]{1,80}»|\u201c[^\u201d]{1,80}\u201d|\"[^\"]{1,80}\"")
 ALLOWED_TOKEN = re.compile(
-    r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+"                       # email
+    r"\S*_\S*"                                            # system names, usernames (AKHILA_HANIIT)
+    r"|(?<!\w)[A-Za-z]{1,3}(?=\s?\d)"                      # letter prefixes of references (L 17344, No 5)
+    r"|[\w.+-]+@[\w-]+(?:\.[\w-]+)+"                       # email
     r"|(?:https?://|www\.)\S+"                             # url
     r"|(?=[A-Za-z0-9/.-]*\d)[A-Za-z0-9]+(?:[-/.][A-Za-z0-9]+)*"  # codes containing a digit
 )
@@ -37,6 +40,7 @@ def block_texts(b: Block) -> list[tuple[str, str]]:
 
 def _strip_allowed(text: str, glossary_keep: set[str]) -> str:
     text = "".join(ch for ch in text if ch not in _CTRL)
+    text = QUOTED.sub(" ", text)  # quoted on-screen labels and titles are reproduced as written
     for keep in sorted(glossary_keep, key=len, reverse=True):
         text = text.replace(keep, " ")
     return ALLOWED_TOKEN.sub(" ", text)
@@ -84,7 +88,7 @@ def stray_punctuation(doc: Document) -> list[Finding]:
                 m = rx.search(t)
                 if m:
                     out.append(Finding(b.id, code, m.group(0)))
-            if t.count("//") % 2:
+            if re.sub(r"(?:https?:)?//\S+", "", t).count("//") % 2 and t.count("//") % 2:
                 out.append(Finding(b.id, "unbalanced_note_marks", t[:40]))
     return out
 
@@ -106,5 +110,40 @@ def figures_match(doc: Document) -> list[Finding]:
     return out
 
 
+def figures_added(doc: Document) -> list[Finding]:
+    """Digit sequences in the translation that the source does not contain (invented or altered figures)."""
+    trans = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+    out = []
+    for b in doc.blocks:
+        if b.multilingual_duplicate:
+            continue
+        for src, tgt in block_texts(b):
+            s = src.translate(trans)
+            added = [f for f in {f.translate(trans) for f in _FIG.findall(tgt.translate(trans))}
+                     if f not in s and f.rstrip(".") not in s]
+            if added:
+                out.append(Finding(b.id, "figure_added", ", ".join(sorted(added))))
+    return out
+
+
+_IDENT = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+|(?:https?://|www\.)[^\s<>\"]+[^\s<>\".,;:!?)]"
+                    r"|(?<![\w])(?=[A-Za-z0-9/.-]*[A-Za-z])(?=[A-Za-z0-9/.-]*\d)[A-Za-z0-9]+(?:[-/.][A-Za-z0-9]+)*(?![\w])")
+
+
+def identifiers_match(doc: Document) -> list[Finding]:
+    """IDs, codes, emails and URLs (letters + digits) must appear in the translation exactly as written."""
+    out = []
+    for b in doc.blocks:
+        if b.multilingual_duplicate:
+            continue
+        for src, tgt in block_texts(b):
+            t = "".join(ch for ch in tgt if ch not in _CTRL)
+            missing = sorted({m for m in _IDENT.findall(src) if m.rstrip(".") not in t})
+            if missing:
+                out.append(Finding(b.id, "identifier_changed", ", ".join(missing)))
+    return out
+
+
 def scan(doc: Document) -> list[Finding]:
-    return leftover_source_script(doc) + stray_punctuation(doc) + figures_match(doc)
+    return (leftover_source_script(doc) + stray_punctuation(doc) + figures_match(doc) + figures_added(doc)
+            + identifiers_match(doc))
