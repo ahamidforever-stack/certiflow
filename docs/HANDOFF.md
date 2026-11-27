@@ -4,10 +4,23 @@ Read this first in a new session.
 
 ## Status
 - **Phase 1** (document model, Word/PDF builder, stamping, release verification) is done.
-- **Phase 2** (agents, prompts, LangGraph pipeline, QA loop, audit, golden harness) is done and tested offline: 57 tests pass.
+- **Phase 2** (agents, prompts, LangGraph pipeline, QA loop, audit, golden harness) is done: 66 tests pass with the office files.
 - The golden set (3 approved EN>AR translations from the office) rebuilds exactly at Word level. PDF page counts match
   when Sakkal Majalla is installed. The header, footer and seal positions match the approved PDFs on every page.
-- **Not yet done:** the first real run with the Claude API. Phase 3 (web app) has not started.
+- **First real API runs done (2026-11-27).** Golden score passes on cases 02 and 03 with intake v3 + translator v2
+  (now active in `config/agents.json`); case 01 is skipped until its source arrives. Phase 3 (web app) has not started.
+
+| Run | Prompts | 02 figs/ids/length/blockers | 03 figs/ids/length/blockers | Cost 02 + 03 |
+|---|---|---|---|---|
+| v1 | all v1 | 80% / 100% / x0.86 / 69 | 100% / 100% / x1.68 / 0 | $2.75 + $0.48 |
+| v4 (active) | intake v3, translator v2 | 98% / 100% / x0.87 / 0 PASS | 100% / 100% / x1.10 / 0 PASS | $1.33 + $0.47 |
+
+  (v1 re-scored with the corrected checks.) What fixed it: the deterministic checks no longer treat doses, vitals,
+  clock times and chemical symbols as identifiers; Arabic units and times follow the approved translations
+  (`profiles/data/ar.json`); translator v2 drops markup symbols printed in a source (`#`, `**`); intake v3 describes
+  photos in one short sentence.
+- **Drafts for review:** the pipeline stops at the translator-approval gate, so golden outputs carry no seal. Never run
+  `job approve` on the user's behalf: approval records the certified translator's sign-off and applies the stamp.
 
 ## Office files (confidential, never committed)
 The user uploads `certiflow_office_assets.zip`. From the repository root:

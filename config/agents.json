@@ -1,10 +1,10 @@
 {
   "_comment": "Models, effort and prompt versions per agent. Admin-editable; never hard-code models in code.",
   "agents": {
-    "intake":      {"model": "claude-sonnet-5-5", "effort": "medium", "max_tokens": 32000, "prompt_version": "v1"},
+    "intake":      {"model": "claude-sonnet-5-5", "effort": "medium", "max_tokens": 32000, "prompt_version": "v3"},
     "intake_zoom": {"model": "claude-sonnet-5-5", "effort": "medium", "max_tokens": 4000,  "prompt_version": "v1"},
     "glossary":    {"model": "claude-opus-5-5",   "effort": "medium", "max_tokens": 16000, "prompt_version": "v1"},
-    "translator":  {"model": "claude-opus-5-5",   "effort": "high",   "max_tokens": 64000, "prompt_version": "v1"},
+    "translator":  {"model": "claude-opus-5-5",   "effort": "high",   "max_tokens": 64000, "prompt_version": "v2"},
     "proofreader": {"model": "claude-opus-5-5",   "effort": "high",   "max_tokens": 32000, "prompt_version": "v1"},
     "qa":          {"model": "claude-opus-5-5",   "effort": "high",   "max_tokens": 32000, "prompt_version": "v1"},
     "formatter":   {"model": "claude-sonnet-5-5", "effort": "medium", "max_tokens": 32000, "prompt_version": "v1"}
