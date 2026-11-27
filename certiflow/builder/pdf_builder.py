@@ -255,9 +255,8 @@ def add_invisible_marker(pdf: Path, marker: str) -> Path:
     """Stamp every page of a PDF with invisible text (render mode 3): nothing is drawn, nothing
     changes in the Word file, but the release check can find it on every page."""
     from pypdf import PdfReader, PdfWriter
-    r = PdfReader(str(pdf))
-    w = PdfWriter()
-    for page in r.pages:
+    w = PdfWriter(clone_from=str(pdf))
+    for page in w.pages:
         pw, ph = float(page.mediabox.width), float(page.mediabox.height)
         buf = io.BytesIO()
         c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
@@ -269,7 +268,6 @@ def add_invisible_marker(pdf: Path, marker: str) -> Path:
         c.save()
         buf.seek(0)
         page.merge_page(PdfReader(buf).pages[0])
-        w.add_page(page)
     with open(pdf, "wb") as f:
         w.write(f)
     return pdf
