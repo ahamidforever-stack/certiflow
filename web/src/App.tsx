@@ -6,6 +6,8 @@ import Login from "./pages/Login";
 import Jobs from "./pages/Jobs";
 import NewJob from "./pages/NewJob";
 import JobView from "./pages/JobView";
+import Review from "./pages/Review";
+import Audit from "./pages/Audit";
 
 const AuthCtx = createContext<{ user: User | null; setUser: (u: User | null) => void }>({ user: null, setUser: () => {} });
 export const useAuth = () => useContext(AuthCtx);
@@ -27,6 +29,8 @@ export default function App() {
             <Route path="/" element={<Jobs />} />
             <Route path="/new" element={<NewJob />} />
             <Route path="/jobs/:id" element={<JobView />} />
+            <Route path="/jobs/:id/review/:doc" element={<Review />} />
+            <Route path="/jobs/:id/audit" element={<Audit />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </Shell>
@@ -68,7 +72,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+      <main className={`mx-auto px-4 py-6 ${loc.pathname.includes("/review/") ? "max-w-[100rem]" : "max-w-6xl"}`}>{children}</main>
     </div>
   );
 }

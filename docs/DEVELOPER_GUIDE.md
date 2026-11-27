@@ -63,9 +63,11 @@ For real translations, set `CERTIFLOW_LLM=anthropic` and `CERTIFLOW_ANTHROPIC_AP
 ## 4. Tests
 
 ```bash
-pytest -q                       # 64 tests, ~2.5 min, offline (needs LibreOffice + Tesseract)
+pytest -q                       # 65 tests, ~5 min, offline (needs LibreOffice + Tesseract)
 pytest -q tests/test_web.py     # web API only
 (cd web && npm run build)       # strict TypeScript check + production build
+(cd web && npm run e2e)         # Playwright walkthrough: upload → glossary → review editor → approve → audit
+                                #   (own server on :8765, mock LLM, throw-away data; first time: npx playwright install chromium)
 certiflow golden run inputs/golden_set --library assets/shoreline/library.json --user amir.gomaa      # exact rebuild check (office files)
 certiflow golden score inputs/golden_set --library assets/shoreline/library.json --user amir.gomaa   # real pipeline vs approved (API key, costs money)
 ```
@@ -152,17 +154,19 @@ Dockerfile, docker-compose.yml, docker/entrypoint.sh, .env.example
 
 **Commits:** small and descriptive. Keep `main` releasable and work on feature branches with PRs.
 
-## 7. Where to start (Phase 4)
+## 7. Phase 4: review editor (done)
 
-1. **Review endpoints:**
-   - `PUT /api/jobs/{id}/documents/{dNN}/blocks/{block}` (edit text or cells, record history, write
-     `<doc>.reviewed.json`)
-   - `POST …/flags/{n}/resolve`
-   - `POST …/changes/{n}/{accept|reject}`
-   - `GET …/pages/{n}.png` (source page image)
-   - `POST …/rerun` (one agent on selected blocks)
-2. **Intake page geometry:** add block bounding boxes to `SourceBlockOut` and the `Block` model, for linking the source
-   image to blocks in the editor.
-3. **Side-by-side editor page** in `web/src/pages/Review.tsx`, using the existing `DocModel` types.
-4. **PDF preview before approval:** build the package into a preview folder without a release record.
-5. **Tests** for each endpoint (`tests/test_web.py` patterns) and a Playwright walkthrough in CI.
+- **Review logic:** `certiflow/review.py` (edit a block, accept/reject an agent change, resolve a flag). Pure functions;
+  every text change appends a `HistoryEntry`. The API saves the result as `docs/<doc>.reviewed.json`.
+- **API** (`certiflow/web/app.py`), all only while the job is `waiting_review`:
+  - `PUT …/documents/{dNN}/blocks/{block}`, `POST …/blocks/{block}/changes/{n}/{accept|reject}`,
+    `POST …/blocks/{block}/flags/{n}/resolve` (a blocker needs a comment)
+  - `GET …/documents/{dNN}/pages/{n}.png` (source page, rendered once into `pages/`)
+  - `POST …/documents/{dNN}/rerun` (translator, proofreader or QA on chosen blocks; job status `reworking` meanwhile)
+  - `GET …/documents/{dNN}/preview.pdf` (stamped, watermarked; only the watermarked file is kept, in `preview/`)
+  - `GET /api/jobs/{id}/audit` (whitelisted fields only: never prompts, responses or instructions)
+  - Approval is refused (409) while a blocker is open.
+- **Block positions:** `Block.bbox` (0-1000 grid) from the intake contract. The prompt `intake/v2.md` asks for it, but
+  v1 stays active until `golden score` passes with v2 (`docs/PROMPT_VERSIONING.md`).
+- **UI:** `web/src/pages/Review.tsx` (side-by-side editor), `Audit.tsx`, the approval confirmation in `JobView.tsx`.
+- **Tests:** `tests/test_web.py` (review, re-run, preview, audit) and `web/e2e/walkthrough.spec.ts`.

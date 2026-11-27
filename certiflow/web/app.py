@@ -15,6 +15,7 @@ import json
 import re
 import secrets
 import shutil
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -25,6 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from .. import review as rv
 from ..assets import AssetError, AssetLibrary
 from ..model import JobSpec, PageOrder, StampChoice
 from ..profiles import all_profiles, get_profile
@@ -38,7 +40,11 @@ SOURCE_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp",
 CONVERT_EXT = {".docx", ".doc", ".odt", ".rtf"}
 PUBLIC_EVENT_KEYS = {"kind", "at", "agent", "stage", "document", "model", "cost_usd", "latency_s", "retries",
                      "blocks", "changes", "qa_loops", "open_blockers", "loop", "items", "by", "docx", "pdf",
-                     "stamp_choice", "error"}
+                     "stamp_choice", "error", "block", "field", "action", "index"}   # never "instruction" (may quote text)
+# audit view: the progress fields plus model details; never prompts, responses or instructions (document text)
+AUDIT_KEYS = PUBLIC_EVENT_KEYS | {"prompt_version", "effort", "usage", "note", "status"}
+REVIEW_STAGES = ("reviewed", "formatted")
+_review_lock = threading.Lock()   # one review write at a time (thread runner; Celery workers never write review files)
 
 
 # ------------------------------------------------------------------ request models
@@ -65,6 +71,28 @@ class GlossaryIn(BaseModel):
 
 class ApproveIn(BaseModel):
     note: Optional[str] = None
+
+
+class CellEditIn(BaseModel):
+    row: int
+    col: int
+    text: str
+
+
+class BlockEditIn(BaseModel):
+    text: Optional[str] = None
+    cells: Optional[list[CellEditIn]] = None
+    reason: str = ""
+
+
+class ResolveIn(BaseModel):
+    comment: str = ""
+
+
+class RerunIn(BaseModel):
+    agent: str
+    blocks: list[str]
+    instruction: str = ""
 
 
 def create_app(cfg: WebConfig | None = None) -> FastAPI:
@@ -362,6 +390,166 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
         raise HTTPException(404, "document not processed yet")
 
 
+    @app.get("/api/jobs/{job_id}/audit")
+    def audit_log(job_id: str, u: User = Depends(current_user)):
+        """Who did what and when: pipeline steps, model calls (model, prompt version, tokens, cost), review
+        actions and status changes. Document text is never included."""
+        with Session() as s:
+            row = _job_for(s, job_id, u)
+            creator = s.get(User, row.created_by)
+            recs = [{"kind": "created", "at": _iso(row.created_at),
+                     "by": creator.username if creator else None}]
+            for e in s.scalars(select(JobEvent).where(JobEvent.job_id == job_id, JobEvent.kind == "status")
+                               .order_by(JobEvent.id)):
+                recs.append({"kind": "status", "at": _iso(e.at), "status": e.data.get("status"),
+                             "error": e.data.get("error")})
+        audit = runner.job_dir(cfg, job_id) / "audit.jsonl"
+        if audit.exists():
+            for line in audit.read_text("utf-8").splitlines():
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                recs.append({k: v for k, v in rec.items() if k in AUDIT_KEYS})
+        recs.sort(key=lambda r: r.get("at") or "")
+        return {"records": recs[-3000:], "truncated": len(recs) > 3000}
+
+    # ------------------------------------------------------------------ review (Phase 4)
+
+    @app.get("/api/jobs/{job_id}/documents/{doc_key}/pages/{number}.png")
+    def source_page(job_id: str, doc_key: str, number: int, u: User = Depends(current_user)):
+        """One source page as an image, for the side-by-side editor (rendered once, then cached)."""
+        from ..ocr import render_page
+        from ..settings import load
+        with Session() as s:
+            _job_for(s, job_id, u)
+        if not re.fullmatch(r"d\d{2}", doc_key):
+            raise HTTPException(404, "no such document")
+        jd = runner.job_dir(cfg, job_id)
+        meta = json.loads((jd / "job.json").read_text("utf-8")) if (jd / "job.json").exists() else {"documents": []}
+        d = next((x for x in meta["documents"] if x["id"] == doc_key), None)
+        if d is None:
+            raise HTTPException(404, "no such document")
+        out = jd / "pages" / doc_key / f"{number}.png"
+        if not out.exists():
+            try:
+                render_page(Path(d["source"]), number, load().pipeline.vision_dpi, out)
+            except IndexError:
+                raise HTTPException(404, "no such page")
+        return FileResponse(out, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+
+    def _review(job_id: str, doc_key: str, u: User, fn) -> dict:
+        """Load the document under review, apply ``fn(doc)``, save it as ``<doc>.reviewed.json``.
+
+        Only while the job waits for review. Audit records carry ids only, never text."""
+        from ..model import Document
+        with Session() as s:
+            row = _job_for(s, job_id, u)
+            if row.status != "waiting_review":
+                raise HTTPException(409, f"job is {row.status}, not waiting for review")
+        if not re.fullmatch(r"d\d{2}", doc_key):
+            raise HTTPException(404, "no such document")
+        docs = runner.job_dir(cfg, job_id) / "docs"
+        with _review_lock:
+            src = next((docs / f"{doc_key}.{st}.json" for st in REVIEW_STAGES
+                        if (docs / f"{doc_key}.{st}.json").exists()), None)
+            if src is None:
+                raise HTTPException(404, "document not processed yet")
+            doc = Document.model_validate_json(src.read_text("utf-8"))
+            try:
+                audit = fn(doc)
+            except rv.ReviewConflict as e:
+                raise HTTPException(409, str(e))
+            except rv.ReviewError as e:
+                raise HTTPException(422, str(e))
+            tmp = docs / f"{doc_key}.reviewed.json.tmp"
+            tmp.write_text(doc.model_dump_json(indent=1, exclude_defaults=True), "utf-8")
+            tmp.replace(docs / f"{doc_key}.reviewed.json")
+            if audit:
+                from ..agents.base import AuditLog
+                AuditLog(runner.job_dir(cfg, job_id) / "audit.jsonl").record(
+                    {"at": datetime.now(timezone.utc).isoformat(), "job": job_id, "document": doc_key,
+                     "by": u.username, **audit})
+        return {"stage": "reviewed", "model": json.loads(doc.model_dump_json(exclude_defaults=True)),
+                "open_blockers": rv.open_blockers(doc)}
+
+    @app.put("/api/jobs/{job_id}/documents/{doc_key}/blocks/{block_id}")
+    def edit_block(job_id: str, doc_key: str, block_id: str, body: BlockEditIn,
+                   u: User = Depends(current_user), _=Depends(csrf)):
+        def fn(doc):
+            cells = [(c.row, c.col, c.text) for c in body.cells or []]
+            added = rv.edit_block(doc, block_id, u.username, text=body.text, cells=cells, reason=body.reason)
+            return {"kind": "review_edit", "block": block_id, "field": [h.field for h in added]} if added else None
+        return _review(job_id, doc_key, u, fn)
+
+    @app.post("/api/jobs/{job_id}/documents/{doc_key}/blocks/{block_id}/changes/{index}/{decision}")
+    def decide_change(job_id: str, doc_key: str, block_id: str, index: int, decision: str,
+                      u: User = Depends(current_user), _=Depends(csrf)):
+        if decision not in ("accept", "reject"):
+            raise HTTPException(404, "decision must be accept or reject")
+
+        def fn(doc):
+            rv.decide_change(doc, block_id, index, u.username, accept=decision == "accept")
+            return {"kind": "review_change", "block": block_id, "index": index, "action": decision}
+        return _review(job_id, doc_key, u, fn)
+
+    @app.post("/api/jobs/{job_id}/documents/{doc_key}/blocks/{block_id}/flags/{index}/resolve")
+    def resolve_flag(job_id: str, doc_key: str, block_id: str, index: int, body: ResolveIn,
+                     u: User = Depends(current_user), _=Depends(csrf)):
+        def fn(doc):
+            rv.resolve_flag(doc, block_id, index, u.username, body.comment)
+            return {"kind": "review_flag", "block": block_id, "index": index, "action": "resolve"}
+        return _review(job_id, doc_key, u, fn)
+
+
+    @app.post("/api/jobs/{job_id}/documents/{doc_key}/rerun", status_code=202)
+    def rerun(job_id: str, doc_key: str, body: RerunIn, u: User = Depends(current_user), _=Depends(csrf)):
+        """Run the translator, proofreader or QA again on selected blocks (with an optional instruction).
+
+        Runs in the background; the job shows ``reworking`` and returns to ``waiting_review``."""
+        from ..pipeline.job import RERUN_AGENTS
+        if body.agent not in RERUN_AGENTS:
+            raise HTTPException(422, f"agent must be one of {sorted(RERUN_AGENTS)}")
+        if not body.blocks:
+            raise HTTPException(422, "select at least one block")
+        if len(body.instruction) > 2000:
+            raise HTTPException(422, "instruction is too long (2000 characters at most)")
+        if not re.fullmatch(r"d\d{2}", doc_key):
+            raise HTTPException(404, "no such document")
+        with Session() as s:
+            row = _job_for(s, job_id, u)
+            if row.status != "waiting_review":
+                raise HTTPException(409, f"job is {row.status}, not waiting for review")
+            if doc_key not in {d.doc_key for d in row.documents}:
+                raise HTTPException(404, "no such document")
+            row.status, row.error = "reworking", None
+            s.add(JobEvent(job_id=job_id, kind="rerun", data={"by": u.username, "agent": body.agent,
+                                                              "document": doc_key, "blocks": len(body.blocks)}))
+            s.commit()
+        runner.submit_rerun(job_id, doc_key, body.agent, body.blocks, body.instruction, u.username)
+        return {"ok": True}
+
+    @app.get("/api/jobs/{job_id}/documents/{doc_key}/preview.pdf")
+    def preview(job_id: str, doc_key: str, u: User = Depends(current_user)):
+        """Watermarked PDF with the chosen stamp, before approval (built on demand, cached until the next edit)."""
+        from ..builder.pdf_builder import BuildError
+        from ..pipeline.job import Job
+        with Session() as s:
+            row = _job_for(s, job_id, u)
+            if row.status != "waiting_review":
+                raise HTTPException(409, f"job is {row.status}, not waiting for review")
+        if not re.fullmatch(r"d\d{2}", doc_key):
+            raise HTTPException(404, "no such document")
+        try:
+            with _review_lock:
+                out = Job(runner.job_dir(cfg, job_id), None).build_preview(doc_key)
+        except ValueError as e:
+            raise HTTPException(404, str(e))
+        except BuildError as e:
+            raise HTTPException(422, f"the preview could not be built: {e}")
+        return FileResponse(out, media_type="application/pdf", filename=f"{doc_key}_preview.pdf",
+                            content_disposition_type="inline", headers={"Cache-Control": "no-store"})
+
     @app.post("/api/jobs/{job_id}/approve")
     def approve(job_id: str, body: ApproveIn, u: User = Depends(current_user), _=Depends(csrf)):
         with Session() as s:
@@ -371,6 +559,10 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
             signer = s.get(User, row.created_by)
             if u.role != "admin" and (u.role != "certified_translator" or u.id != signer.id):
                 raise HTTPException(403, "only the signing certified translator (or an admin) can approve")
+            blocked = _open_blockers(runner.job_dir(cfg, job_id), [d.doc_key for d in row.documents])
+            if blocked:
+                raise HTTPException(409, "open QA blockers must be resolved before approval: "
+                                         + ", ".join(f"{k}: {', '.join(v)}" for k, v in blocked.items()))
             row.status, row.approved_by = "queued", u.id
             s.add(JobEvent(job_id=job_id, kind="approved", data={"by": u.username}))
             s.commit()
@@ -428,6 +620,11 @@ def _safe(name: str) -> str:
     return re.sub(r"[^\w.\- ]+", "_", name, flags=re.UNICODE)[:120]
 
 
+def _iso(dt: datetime) -> str:
+    """UTC ISO time (SQLite drops the time zone)."""
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).isoformat()
+
+
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
 
@@ -459,3 +656,18 @@ def _released_files(jd: Path) -> list[dict]:
         return []
     return [{"name": p.name, "size": p.stat().st_size, "kind": p.suffix.lstrip(".")}
             for p in sorted(rel.iterdir()) if p.is_file() and p.suffix in (".docx", ".pdf", ".zip", ".txt")]
+
+
+def _open_blockers(jd: Path, doc_keys: list[str]) -> dict[str, list[str]]:
+    """Blocks with unresolved blocker flags, per document, from the latest review state."""
+    from ..model import Document
+    out = {}
+    for k in doc_keys:
+        for st in REVIEW_STAGES:
+            p = jd / "docs" / f"{k}.{st}.json"
+            if p.exists():
+                ids = rv.open_blockers(Document.model_validate_json(p.read_text("utf-8")))
+                if ids:
+                    out[k] = ids
+                break
+    return out

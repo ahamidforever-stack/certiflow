@@ -34,6 +34,10 @@ from ..profiles import resolve_pair
 from ..settings import Settings, load
 
 
+RERUN_AGENTS = {"translator", "proofreader", "qa"}
+PREVIEW_WATERMARK = "PREVIEW - NOT CERTIFIED"
+
+
 class JobState(TypedDict, total=False):
     job_dir: str
     stage: str
@@ -216,6 +220,69 @@ class Job:
         write_disclosures(results, out / "disclosures.txt")
         z = zip_batch(results, out, self.dir.name) if len(results) > 1 else None
         return {"stage": "released", "released": [str(r.pdf) for _, r in results] + ([str(z)] if z else [])}
+
+    # ----------------------------------------------------------------- review (Phase 4)
+
+    def review_doc(self, doc_id: str) -> Document:
+        """The document as the reviewer sees it: the reviewed stage if any, else the formatted one."""
+        doc = self.load_doc(doc_id, "reviewed") or self.load_doc(doc_id, "formatted")
+        if doc is None:
+            raise ValueError(f"{doc_id} is not ready for review")
+        return doc
+
+    def rerun(self, doc_id: str, agent: str, blocks: list[str], instruction: str = "", by: str = "") -> int:
+        """Run one agent again on selected blocks of a document under review. Agent changes are recorded in
+        the block history (accept/reject in the editor); the result is saved as the reviewed stage."""
+        if agent not in RERUN_AGENTS:
+            raise ValueError(f"agent must be one of {sorted(RERUN_AGENTS)}")
+        doc = self.review_doc(doc_id)
+        known = {b.id for b in steps.translatable(doc)}
+        only = {b for b in blocks if b in known}
+        if not only:
+            raise ValueError("no translatable blocks selected")
+        ctx = self.ctx(doc.source_language, doc.target_language, doc_id)
+        self.event("rerun_started", document=doc_id, agent=agent, blocks=sorted(only), by=by)
+        before = sum(len(b.history) for b in doc.blocks)
+        if agent == "translator":
+            steps.translate(ctx, doc, only=only,
+                            fix_requests={b: [instruction.strip()] for b in only} if instruction.strip() else None)
+        elif agent == "proofreader":
+            steps.proofread(ctx, doc, only=only, instruction=instruction)
+        else:
+            steps.qa(ctx, doc, only=only, instruction=instruction)
+        changes = sum(len(b.history) for b in doc.blocks) - before
+        self.save_doc(doc, "reviewed")
+        self.event("rerun_done", document=doc_id, agent=agent, blocks=sorted(only), changes=changes, by=by)
+        return changes
+
+    def build_preview(self, doc_id: str) -> Path:
+        """A watermarked PDF of the document as it would be released, with the chosen stamp.
+
+        Built in a temporary folder; only the watermarked PDF is kept, so no valid stamped copy
+        exists before approval. Rebuilt only when the document changed since the last preview."""
+        import shutil
+        import tempfile
+
+        from ..builder.pdf_builder import add_watermark
+        d = next((x for x in self.meta["documents"] if x["id"] == doc_id), None)
+        if d is None:
+            raise ValueError(f"no document {doc_id}")
+        src = self.doc_path(doc_id, "reviewed")
+        src = src if src.exists() else self.doc_path(doc_id, "formatted")
+        out = self.dir / "preview" / f"{doc_id}.preview.pdf"
+        if out.exists() and out.stat().st_mtime >= src.stat().st_mtime:
+            return out
+        doc = self.review_doc(doc_id)
+        lib = AssetLibrary(Path(self.meta["library"]))
+        out.parent.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="cf_preview_") as td:
+            res = build_package(doc, Path(d["source"]), self.spec, lib, Path(td))
+            add_watermark(res.pdf, PREVIEW_WATERMARK)
+            tmp = out.with_suffix(".tmp")
+            shutil.copy(res.pdf, tmp)
+            tmp.replace(out)
+        self.event("preview_built", document=doc_id)
+        return out
 
     # ----------------------------------------------------------------- graph
 

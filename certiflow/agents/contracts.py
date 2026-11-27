@@ -33,6 +33,7 @@ class SourceBlockOut(BaseModel):
     continues_previous_page: bool            # sentence/paragraph split by the page break (join with previous)
     multilingual_duplicate: bool             # same text already given on this page in another language
     repeated_on_every_page: bool             # identical stamp/signature/header repeated across pages
+    bbox: Optional[list[int]] = None         # [x0, y0, x1, y1] on a 0-1000 grid of the page image
 
 
 class UncertainRegion(BaseModel):

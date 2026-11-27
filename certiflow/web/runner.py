@@ -81,6 +81,47 @@ def advance(job_id: str, resume: Any = None, cfg: WebConfig | None = None) -> di
     return {"status": status, "error": err}
 
 
+def rerun(job_id: str, doc_key: str, agent: str, blocks: list[str], instruction: str = "", by: str = "",
+          cfg: WebConfig | None = None) -> dict:
+    """Run one agent again on selected blocks while the job waits for review (status ``reworking``).
+
+    The job always returns to ``waiting_review``; a failure is shown as the job error, not as a failed job."""
+    from ..pipeline.job import Job
+    cfg = cfg or get_config()
+    Session = session_factory(cfg.database_url)
+    with Session() as s:
+        row = s.get(JobRow, job_id)
+        target = row.target_language
+    err, changes = None, 0
+    job = None
+    try:
+        job = Job(job_dir(cfg, job_id), llm_client(cfg, target))
+        changes = job.rerun(doc_key, agent, blocks, instruction, by)
+    except Exception as e:  # noqa: BLE001 - shown to the reviewer; details in the server log only
+        err = f"Re-run failed: {type(e).__name__}: {str(e)[:300]}"
+        traceback.print_exc()
+    with Session() as s:
+        row = s.get(JobRow, job_id)
+        row.status, row.error = "waiting_review", err
+        if job is not None:
+            row.cost_usd = round(sum(a["cost_usd"] for a in job.audit_totals().values()), 4)
+        _event(s, job_id, "status", status="waiting_review", error=err)
+        s.commit()
+    return {"changes": changes, "error": err}
+
+
+def submit_rerun(job_id: str, doc_key: str, agent: str, blocks: list[str], instruction: str, by: str) -> None:
+    cfg = get_config()
+    if cfg.queue == "celery":
+        from .tasks import rerun_job
+        rerun_job.delay(job_id, doc_key, agent, blocks, instruction, by)
+        return
+    global _pool
+    if _pool is None:
+        _pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="certiflow-job")
+    _pool.submit(rerun, job_id, doc_key, agent, blocks, instruction, by, cfg)
+
+
 def submit(job_id: str, resume: Any = None) -> None:
     cfg = get_config()
     if cfg.queue == "celery":

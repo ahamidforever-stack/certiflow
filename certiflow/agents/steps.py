@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional
 
 from ..llm.client import Image, LLMError
 from ..model import (Block, BlockStatus, BlockType, Document, Flag, GlossaryEntry, HistoryEntry, NoteKind, PageInfo,
@@ -129,6 +129,7 @@ def _to_block(sb: SourceBlockOut, bid: str, page: int) -> Block:
               unreadable_reason=UnreadableReason(sb.unreadable_reason) if t == BlockType.unreadable else None,
               confidence=max(0.0, min(1.0, sb.confidence)), multilingual_duplicate=sb.multilingual_duplicate,
               flags=flags, status=BlockStatus.draft)
+    b.bbox = _bbox(sb.bbox)
     if t == BlockType.unreadable and b.unreadable_reason is None:
         b.unreadable_reason = UnreadableReason.illegible
     if t == BlockType.unreadable and b.unreadable_reason == UnreadableReason.covered_by_stamp:
@@ -136,6 +137,14 @@ def _to_block(sb: SourceBlockOut, bid: str, page: int) -> Block:
                             message="text hidden under a stamp"))
     return b
 
+
+
+def _bbox(raw: Optional[list[int]]) -> Optional[list[float]]:
+    """A usable box on the 0-1000 grid, or None (missing, wrong length, empty or out of range)."""
+    if not raw or len(raw) != 4:
+        return None
+    x0, y0, x1, y1 = (max(0.0, min(1000.0, float(v))) for v in raw)
+    return [x0, y0, x1, y1] if x1 > x0 and y1 > y0 else None
 
 def _zoom_uncertain(ctx: AgentContext, scan: PageScan, out: IntakePageOut, blocks: list[Block]) -> None:
     for reg in out.uncertain_regions[:12]:
@@ -253,6 +262,11 @@ def _apply_translation(b: Block, t, actor: str, reason: str) -> None:
     b.flags = [f for f in b.flags if not (f.agent == "translator" and f.code == "not_translated")]
 
 
+
+def _reviewer(instruction: str) -> str:
+    """A reviewer's instruction for a re-run, passed in the user message (the system prompt stays cached)."""
+    return f"\nReviewer instruction: {instruction.strip()}" if instruction and instruction.strip() else ""
+
 # ================================================================ proofreader
 
 def _pair_payload(b: Block) -> dict:
@@ -263,14 +277,15 @@ def _pair_payload(b: Block) -> dict:
     return d
 
 
-def proofread(ctx: AgentContext, doc: Document, only: set[str] | None = None) -> list[dict]:
+def proofread(ctx: AgentContext, doc: Document, only: set[str] | None = None,
+              instruction: str = "") -> list[dict]:
     st = ctx.settings.pipeline
     by_id = {b.id: b for b in doc.blocks}
     todo = [b for b in translatable(doc) if only is None or b.id in only]
     applied = []
     for chunk in units(todo, st.chunk_blocks, st.chunk_max_pages):
         res = call_agent(ctx, "proofreader", ProofreaderOut, {"blocks": [_pair_payload(b) for b in chunk]},
-                         instruction=f"Proofread these {len(chunk)} blocks.")
+                         instruction=f"Proofread these {len(chunk)} blocks." + _reviewer(instruction))
         for ch in res.data.changes:
             b = by_id.get(ch.id)
             if b is None:
@@ -330,7 +345,7 @@ def deterministic_qa(ctx: AgentContext, doc: Document, only: set[str] | None = N
     return issues
 
 
-def qa(ctx: AgentContext, doc: Document, only: set[str] | None = None) -> list[QAIssue]:
+def qa(ctx: AgentContext, doc: Document, only: set[str] | None = None, instruction: str = "") -> list[QAIssue]:
     st = ctx.settings.pipeline
     auto = deterministic_qa(ctx, doc, only)
     todo = [b for b in translatable(doc) if only is None or b.id in only]
@@ -339,13 +354,13 @@ def qa(ctx: AgentContext, doc: Document, only: set[str] | None = None) -> list[Q
         ids = {b.id for b in chunk}
         res = call_agent(ctx, "qa", QAOut, {"blocks": [_pair_payload(b) for b in chunk],
                                             "automated_findings": [i.model_dump() for i in auto if i.id in ids]},
-                         instruction=f"Check these {len(chunk)} blocks.")
+                         instruction=f"Check these {len(chunk)} blocks." + _reviewer(instruction))
         model_issues += res.data.issues
     issues = auto + model_issues
     auto_ids = {id(i) for i in auto}
     by_id = {b.id: b for b in doc.blocks}
-    for b in todo:  # replace earlier QA flags on the checked blocks
-        b.flags = [f for f in b.flags if f.agent not in ("qa", "qa_auto")]
+    for b in todo:  # replace earlier open QA flags on the checked blocks (a reviewer's resolution stays on record)
+        b.flags = [f for f in b.flags if f.agent not in ("qa", "qa_auto") or f.resolved]
     for i in issues:
         if i.id in by_id:
             by_id[i.id].flags.append(Flag(code=i.code, severity=Severity(i.severity), message=i.message,

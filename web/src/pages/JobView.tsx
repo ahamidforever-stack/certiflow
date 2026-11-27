@@ -5,7 +5,7 @@ import { useAuth } from "../App";
 import { LangPair, StatusChip } from "../components/Status";
 import { useI18n } from "../i18n";
 
-const STAGES = ["intake", "translated", "proofread", "qa", "formatted"];
+const STAGES = ["intake", "translated", "proofread", "qa", "formatted", "reviewed"];
 interface Ev { id: number; text: string; at?: string; tone?: "error" | "ok" }
 
 export default function JobView() {
@@ -51,6 +51,7 @@ export default function JobView() {
           <h1 className="text-xl font-semibold text-slate-900" dir="auto">{job.title}</h1>
           <StatusChip status={job.status} />
           <span className="font-mono text-xs text-slate-400" dir="ltr">{job.id}</span>
+          <Link to={`/jobs/${job.id}/audit`} className="ms-auto text-sm text-brand-500 hover:underline">{t("auOpen")}</Link>
         </div>
         <div className="mt-1 flex flex-wrap gap-4 text-sm text-slate-600">
           <LangPair s={job.source_language} t={job.target_language} />
@@ -173,20 +174,56 @@ function ReviewPanel({ job, canApprove, onDone }: { job: Job; canApprove: boolea
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [confirm, setConfirm] = useState(false);
+  const blockers = (job.documents ?? []).reduce((a, d) => a + (d.open_flags?.blocker ?? 0), 0);
   return (
     <section className="card border-violet-300 p-5">
       <h2 className="font-semibold text-slate-900">{t("waitingReview")}</h2>
       <p className="mb-4 mt-1 text-sm text-slate-600">{t("reviewHint")}</p>
-      <div className="space-y-4">{job.documents?.map((d) => <Preview key={d.key} jobId={job.id} docKey={d.key} title={d.title} />)}</div>
-      <p className="mt-3 text-xs text-slate-500">{t("editorSoon")}</p>
-      <div className="mt-4 flex flex-wrap items-end gap-3">
-        <div className="min-w-[16rem] flex-1"><label className="label" htmlFor="an">{t("approveNote")}</label><input id="an" className="input" value={note} onChange={(e) => setNote(e.target.value)} /></div>
-        <button className="btn-primary" disabled={!canApprove || busy}
-          onClick={() => { setBusy(true); setErr(""); api.approve(job.id, note || undefined).then(onDone).catch((e) => setErr(e.message)).finally(() => setBusy(false)); }}>
-          ✓ {t("approve")}
-        </button>
+      <div className="mb-4 flex flex-wrap gap-2">
+        {job.documents?.map((d) => (
+          <Link key={d.key} to={`/jobs/${job.id}/review/${d.key}`} className="btn-primary">
+            {t("rvOpenEditor")} <span className="font-mono text-xs opacity-80" dir="ltr">{d.key}</span>
+          </Link>
+        ))}
       </div>
+      <div className="space-y-4">{job.documents?.map((d) => <Preview key={d.key} jobId={job.id} docKey={d.key} title={d.title} />)}</div>
+      {!confirm ? (
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <div className="min-w-[16rem] flex-1"><label className="label" htmlFor="an">{t("approveNote")}</label><input id="an" className="input" dir="auto" value={note} onChange={(e) => setNote(e.target.value)} /></div>
+          <button className="btn-primary" disabled={!canApprove || busy || blockers > 0} onClick={() => setConfirm(true)}>✓ {t("approve")}</button>
+        </div>
+      ) : (
+        <div className="mt-4 rounded-lg border border-brand-500 bg-brand-50 p-4" role="alertdialog" aria-labelledby="apc">
+          <h3 id="apc" className="font-semibold text-slate-900">{t("apConfirmTitle")}</h3>
+          <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
+            <dt className="text-slate-600">{t("stamp")}</dt>
+            <dd className="font-medium text-slate-900">{job.stamp === "certified" ? t("certified") : t("officeStamp")}</dd>
+            <dt className="text-slate-600">{t("documents")}</dt>
+            <dd>
+              <ul className="space-y-0.5">
+                {job.documents?.map((d) => (
+                  <li key={d.key} className="flex flex-wrap gap-2">
+                    <span className="font-mono text-xs text-slate-500" dir="ltr">{d.key}</span><span dir="auto">{d.title}</span>
+                    <a className="text-brand-500 hover:underline" href={`/api/jobs/${job.id}/documents/${d.key}/preview.pdf`} target="_blank" rel="noopener">{t("rvPreview")}</a>
+                  </li>
+                ))}
+              </ul>
+            </dd>
+            {note && <><dt className="text-slate-600">{t("approveNote")}</dt><dd dir="auto">{note}</dd></>}
+          </dl>
+          <p className="mt-3 text-sm text-slate-700">{t("apConfirmText")}</p>
+          <div className="mt-3 flex gap-2">
+            <button className="btn-ghost" onClick={() => setConfirm(false)} disabled={busy}>{t("rvCancel")}</button>
+            <button className="btn-primary" disabled={busy}
+              onClick={() => { setBusy(true); setErr(""); api.approve(job.id, note || undefined).then(onDone).catch((e) => { setErr(e.message); setConfirm(false); }).finally(() => setBusy(false)); }}>
+              ✓ {t("apConfirm")}
+            </button>
+          </div>
+        </div>
+      )}
       {!canApprove && <p className="mt-2 text-xs text-slate-500">{t("onlySigner")}</p>}
+      {canApprove && blockers > 0 && <p className="mt-2 text-xs text-red-700">{t("rvApproveBlocked", { n: blockers })}</p>}
       {err && <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{err}</p>}
     </section>
   );

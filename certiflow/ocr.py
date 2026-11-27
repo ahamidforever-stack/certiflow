@@ -56,6 +56,28 @@ def render_pages(src: Path, dpi: int, workdir: Path) -> list[Image.Image]:
     return [Image.open(f).convert("RGB") for f in files]
 
 
+
+def render_page(src: Path, number: int, dpi: int, out: Path) -> Path:
+    """Render one 1-based page of a PDF or (multi-frame) image to ``out`` (PNG). Raises IndexError if absent."""
+    if number < 1:
+        raise IndexError(number)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if src.suffix.lower() in IMAGE_EXT:
+        with Image.open(src) as im:
+            if number > getattr(im, "n_frames", 1):
+                raise IndexError(number)
+            im.seek(number - 1)
+            im.convert("RGB").save(out, "PNG")
+        return out
+    from pypdf import PdfReader
+    if number > len(PdfReader(str(src)).pages):
+        raise IndexError(number)
+    tmp = out.with_suffix(".tmp")
+    subprocess.run(["pdftoppm", "-r", str(dpi), "-png", "-singlefile", "-f", str(number), "-l", str(number),
+                    str(src), str(tmp)], check=True, capture_output=True)
+    Path(str(tmp) + ".png").replace(out)
+    return out
+
 def text_layer(src: Path) -> list[str]:
     if src.suffix.lower() != ".pdf":
         return []

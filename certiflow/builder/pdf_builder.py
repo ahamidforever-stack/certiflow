@@ -273,6 +273,30 @@ def add_invisible_marker(pdf: Path, marker: str) -> Path:
     return pdf
 
 
+
+def add_watermark(pdf: Path, text: str) -> Path:
+    """Draw a large diagonal watermark on every page (review previews: never a valid certified copy)."""
+    from pypdf import PdfReader, PdfWriter
+    w = PdfWriter(clone_from=str(pdf))
+    for page in w.pages:
+        pw, ph = float(page.mediabox.width), float(page.mediabox.height)
+        buf = io.BytesIO()
+        c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
+        c.saveState()
+        c.setFillColorRGB(0.85, 0.1, 0.1, alpha=0.28)
+        size = min(pw, ph) / max(len(text), 1) * 1.6
+        c.setFont("Helvetica-Bold", size)
+        c.translate(pw / 2, ph / 2)
+        c.rotate(45)
+        c.drawCentredString(0, -size / 3, text)
+        c.restoreState()
+        c.save()
+        buf.seek(0)
+        page.merge_page(PdfReader(buf).pages[0])
+    with open(pdf, "wb") as f:
+        w.write(f)
+    return pdf
+
 # ------------------------------------------------------------ merge
 
 def _page_texts(pdf: Path) -> list[str]:

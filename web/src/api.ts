@@ -48,9 +48,31 @@ export const api = {
   documentModel: (id: string, key: string) => req<{ stage: string; model: DocModel }>("GET", `/api/jobs/${id}/documents/${key}`),
   approve: (id: string, note?: string) => req("POST", `/api/jobs/${id}/approve`, { note }),
   retry: (id: string) => req("POST", `/api/jobs/${id}/retry`),
+  // review editor (Phase 4)
+  editBlock: (id: string, key: string, block: string, body: { text?: string; cells?: { row: number; col: number; text: string }[]; reason?: string }) =>
+    req<ReviewResult>("PUT", `/api/jobs/${id}/documents/${key}/blocks/${encodeURIComponent(block)}`, body),
+  decideChange: (id: string, key: string, block: string, index: number, decision: "accept" | "reject") =>
+    req<ReviewResult>("POST", `/api/jobs/${id}/documents/${key}/blocks/${encodeURIComponent(block)}/changes/${index}/${decision}`),
+  resolveFlag: (id: string, key: string, block: string, index: number, comment: string) =>
+    req<ReviewResult>("POST", `/api/jobs/${id}/documents/${key}/blocks/${encodeURIComponent(block)}/flags/${index}/resolve`, { comment }),
+  rerun: (id: string, key: string, agent: string, blocks: string[], instruction: string) =>
+    req<{ ok: boolean }>("POST", `/api/jobs/${id}/documents/${key}/rerun`, { agent, blocks, instruction }),
+  audit: (id: string) => req<{ records: AuditRecord[]; truncated: boolean }>("GET", `/api/jobs/${id}/audit`),
+  pageImage: (id: string, key: string, n: number) => `/api/jobs/${id}/documents/${key}/pages/${n}.png`,
 };
 
-export interface DocBlock { id: string; type: string; source_page?: number; source_text?: string; translated_text?: string;
-  label?: string; rows?: { cells: { source_text?: string; translated_text?: string }[] }[];
-  flags?: { code: string; severity: string; message: string; resolved?: boolean }[]; status?: string }
-export interface DocModel { title: string; source_language: string; target_language: string; blocks: DocBlock[] }
+export interface DocFlag { code: string; severity: string; message?: string; agent?: string; resolved?: boolean;
+  resolved_by?: string; resolution?: string }
+export interface DocHistory { at?: string; actor: string; field?: string; old?: string | null; new?: string | null; reason?: string;
+  review?: "accepted" | "rejected" | null; reviewed_by?: string }
+export interface DocCell { source_text?: string; translated_text?: string; header?: boolean; colspan?: number; blocks?: unknown[] }
+export interface DocBlock { id: string; type: string; source_page?: number; bbox?: number[]; source_text?: string; translated_text?: string;
+  label?: string; level?: number; rows?: { cells: DocCell[]; header?: boolean }[]; direction?: string;
+  flags?: DocFlag[]; history?: DocHistory[]; status?: string; multilingual_duplicate?: boolean }
+export interface DocModel { title: string; source_language: string; target_language: string; blocks: DocBlock[];
+  pages?: { number: number }[] }
+export interface ReviewResult { stage: string; model: DocModel; open_blockers: string[] }
+export interface AuditRecord { kind: string; at?: string; by?: string | null; agent?: string; stage?: string; status?: string;
+  document?: string; block?: string; blocks?: string[] | number; action?: string; model?: string; prompt_version?: string;
+  usage?: { input_tokens?: number; output_tokens?: number }; cost_usd?: number; latency_s?: number; error?: string | null;
+  note?: string | null; pdf?: string }
