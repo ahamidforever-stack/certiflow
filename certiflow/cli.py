@@ -244,6 +244,48 @@ def _golden_score(args, lib) -> int:
     return 1 if failed else 0
 
 
+def cmd_web(args) -> int:
+    import getpass
+    from .web.config import get_config
+    cfg = get_config()
+    if args.action == "init-db":
+        from alembic import command
+        from alembic.config import Config
+        root = Path(__file__).resolve().parents[1]
+        ac = Config(str(root / "alembic.ini"))
+        ac.set_main_option("script_location", str(root / "migrations"))
+        ac.set_main_option("sqlalchemy.url", cfg.database_url)
+        command.upgrade(ac, "head")
+        print("database ready:", cfg.database_url.split("@")[-1])
+        return 0
+    if args.action == "create-user":
+        from .web.auth import hash_password
+        from .web.db import User, session_factory, user_by_username
+        if args.role not in ("admin", "certified_translator", "reviewer"):
+            sys.exit("role must be admin, certified_translator or reviewer")
+        pw = args.password or getpass.getpass("Password: ")
+        if len(pw) < 10:
+            sys.exit("use at least 10 characters")
+        with session_factory(cfg.database_url)() as s:
+            u = user_by_username(s, args.username.lower())
+            if u is None:
+                u = User(username=args.username.lower(), name=args.name or args.username, role=args.role,
+                         password_hash=hash_password(pw))
+                s.add(u)
+            else:
+                u.role, u.password_hash = args.role, hash_password(pw)
+                u.name = args.name or u.name
+            s.commit()
+        print(f"user {args.username.lower()} saved ({args.role})")
+        return 0
+    if args.action == "serve":
+        import uvicorn
+        from .web.app import create_app
+        uvicorn.run(create_app(cfg), host=args.host, port=args.port, proxy_headers=True)
+        return 0
+    return 1
+
+
 def cmd_schema(args) -> int:
     s = json.dumps(Document.model_json_schema(), indent=2)
     if args.out:
@@ -342,6 +384,16 @@ def main(argv=None) -> int:
     jb.add_argument("--note")
     jb.add_argument("--mock", action="store_true")
     jb.set_defaults(fn=cmd_job)
+
+    wb = sub.add_parser("web", help="web app: init-db / create-user / serve")
+    wb.add_argument("action", choices=["init-db", "create-user", "serve"])
+    wb.add_argument("username", nargs="?")
+    wb.add_argument("--role", default="certified_translator")
+    wb.add_argument("--name")
+    wb.add_argument("--password", help="omit to be prompted (recommended)")
+    wb.add_argument("--host", default="127.0.0.1")
+    wb.add_argument("--port", type=int, default=8000)
+    wb.set_defaults(fn=cmd_web)
 
     sc = sub.add_parser("schema")
     sc.add_argument("out", nargs="?")

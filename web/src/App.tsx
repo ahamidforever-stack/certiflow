@@ -1,0 +1,74 @@
+import { createContext, useContext, useEffect, useState } from "react";
+import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { api, type User } from "./api";
+import { useI18n } from "./i18n";
+import Login from "./pages/Login";
+import Jobs from "./pages/Jobs";
+import NewJob from "./pages/NewJob";
+import JobView from "./pages/JobView";
+
+const AuthCtx = createContext<{ user: User | null; setUser: (u: User | null) => void }>({ user: null, setUser: () => {} });
+export const useAuth = () => useContext(AuthCtx);
+
+export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const { setLang } = useI18n();
+  useEffect(() => {
+    api.me().then((u) => { setUser(u); setLang(u.ui_language); }).catch(() => setUser(null)).finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  if (loading) return <div className="p-10 text-slate-500">…</div>;
+  return (
+    <AuthCtx.Provider value={{ user, setUser }}>
+      {user ? (
+        <Shell>
+          <Routes>
+            <Route path="/" element={<Jobs />} />
+            <Route path="/new" element={<NewJob />} />
+            <Route path="/jobs/:id" element={<JobView />} />
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
+        </Shell>
+      ) : (
+        <Login />
+      )}
+    </AuthCtx.Provider>
+  );
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
+  const { t, lang, setLang } = useI18n();
+  const { user, setUser } = useAuth();
+  const loc = useLocation();
+  const nav = (to: string, label: string) => (
+    <Link to={to} className={`rounded-md px-3 py-1.5 text-sm font-medium ${loc.pathname === to ? "bg-white/15 text-white" : "text-brand-100 hover:text-white"}`}>{label}</Link>
+  );
+  const switchLang = () => {
+    const next = lang === "en" ? "ar" : "en";
+    setLang(next);
+    api.setLanguage(next).catch(() => {});
+  };
+  return (
+    <div className="min-h-screen">
+      <header className="bg-brand-600 text-white">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-3">
+          <Link to="/" className="flex items-center gap-2">
+            <img src="/favicon.svg" alt="" className="h-7 w-7" />
+            <div className="leading-tight">
+              <div className="font-semibold">{t("appName")}</div>
+              <div className="text-xs text-brand-100">{t("office")}</div>
+            </div>
+          </Link>
+          <nav className="flex gap-1 ms-4">{nav("/", t("jobs"))}{nav("/new", t("newJob"))}</nav>
+          <div className="ms-auto flex items-center gap-3 text-sm">
+            <button onClick={switchLang} className="rounded-md border border-white/30 px-2.5 py-1 hover:bg-white/10">{t("language")}</button>
+            <span className="text-brand-100">{user?.name}</span>
+            <button className="text-brand-100 hover:text-white" onClick={() => api.logout().finally(() => setUser(null))}>{t("signOut")}</button>
+          </div>
+        </div>
+      </header>
+      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+    </div>
+  );
+}

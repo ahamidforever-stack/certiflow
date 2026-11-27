@@ -60,13 +60,16 @@ class Job:
 
     @staticmethod
     def create(job_dir: Path, sources: list[Path], source_language: str, target_language: str, spec: JobSpec,
-               library: Path, titles: list[str] | None = None) -> Path:
+               library: Path, titles: list[str] | None = None,
+               languages: list[tuple[str, str]] | None = None) -> Path:
+        """``languages`` optionally gives each document its own (source, target) pair."""
         job_dir.mkdir(parents=True, exist_ok=True)
         docs = []
         for i, s in enumerate(sources):
+            src, tgt = languages[i] if languages else (source_language, target_language)
             docs.append({"id": f"d{i + 1:02d}", "source": str(Path(s).resolve()),
                          "title": (titles[i] if titles else Path(s).stem.replace("_", " ")),
-                         "source_language": source_language, "target_language": target_language})
+                         "source_language": src, "target_language": tgt})
         (job_dir / "job.json").write_text(json.dumps({
             "created": _now(), "spec": spec.model_dump(mode="json"), "library": str(Path(library).resolve()),
             "documents": docs}, indent=2, ensure_ascii=False), "utf-8")
@@ -209,6 +212,8 @@ class Job:
             res = build_package(doc, Path(d["source"]), self.spec, lib, out, index=i + 1)
             results.append((doc.title, res))
             self.event("released", document=d["id"], docx=res.docx.name, pdf=res.pdf.name, **res.audit)
+        from ..builder.package import write_disclosures
+        write_disclosures(results, out / "disclosures.txt")
         z = zip_batch(results, out, self.dir.name) if len(results) > 1 else None
         return {"stage": "released", "released": [str(r.pdf) for _, r in results] + ([str(z)] if z else [])}
 
@@ -236,21 +241,29 @@ class Job:
         g.add_edge("release", END)
         return g.compile(checkpointer=checkpointer)
 
-    def run(self, resume: Any = None) -> dict:
-        """Run until the next human gate (or the end). ``resume`` answers the pending gate."""
+    def run(self, resume: Any = None, checkpoint_dsn: str | None = None) -> dict:
+        """Run until the next human gate (or the end). ``resume`` answers the pending gate.
+        Checkpoints go to PostgreSQL when ``checkpoint_dsn`` is given, else to a SQLite file in the job dir."""
+        if checkpoint_dsn:
+            from langgraph.checkpoint.postgres import PostgresSaver
+            with PostgresSaver.from_conn_string(checkpoint_dsn) as saver:
+                saver.setup()
+                return self._run(self.graph(saver), resume)
         conn = sqlite3.connect(str(self.dir / "checkpoints.sqlite"), check_same_thread=False)
         try:
-            graph = self.graph(SqliteSaver(conn))
-            cfg = {"configurable": {"thread_id": self.dir.name}}
-            inp = Command(resume=resume) if resume is not None else (
-                None if graph.get_state(cfg).next else {"job_dir": str(self.dir), "stage": "created"})
-            result = graph.invoke(inp, cfg)
-            snap = graph.get_state(cfg)
-            waiting = [i.value for t in snap.tasks for i in (t.interrupts or [])]
-            return {"stage": result.get("stage"), "waiting": waiting, "next": list(snap.next),
-                    "released": result.get("released")}
+            return self._run(self.graph(SqliteSaver(conn)), resume)
         finally:
             conn.close()
+
+    def _run(self, graph, resume: Any) -> dict:
+        cfg = {"configurable": {"thread_id": self.dir.name}}
+        inp = Command(resume=resume) if resume is not None else (
+            None if graph.get_state(cfg).next else {"job_dir": str(self.dir), "stage": "created"})
+        result = graph.invoke(inp, cfg)
+        snap = graph.get_state(cfg)
+        waiting = [i.value for t in snap.tasks for i in (t.interrupts or [])]
+        return {"stage": result.get("stage"), "waiting": waiting, "next": list(snap.next),
+                "released": result.get("released")}
 
     def status(self) -> dict:
         docs = {}

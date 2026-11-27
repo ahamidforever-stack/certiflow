@@ -119,3 +119,44 @@ Departures from the brief (Phase 2):
 - **Batch API ("bulk, lower cost"):** comes with the queue in Phase 3.
 - **Langfuse tracing:** comes in Phase 5. Our own audit log is complete.
 - **Intake zoom:** uses a plain Messages API call, not the Claude Agent SDK (see "Changes to the brief").
+
+## Phase 3: web app
+
+```
+browser (React/TS/Tailwind, EN/AR + RTL)
+   │  HttpOnly signed session cookie + X-CertiFlow CSRF header; SSE for live progress
+FastAPI (certiflow/web/app.py) ──► PostgreSQL (users, jobs, documents, events; Alembic migrations)
+   │ submit(job_id, resume)
+   ▼
+Redis ──► Celery workers (certiflow/web/tasks.py) ──► pipeline Job.run (LangGraph, PostgreSQL checkpointer)
+                                                     └─ job files on the shared /data volume
+```
+
+**Runner.** `runner.advance(job_id, resume)` moves a job to its next human gate. It is the only unit of work, and
+both runners use it:
+- `thread` for development and tests
+- `celery` for production
+
+**Job statuses.** `queued → running → waiting_glossary → running → waiting_review → releasing → released`, or
+`failed` (with retry).
+
+**Access rules.**
+- Only certified translators and admins create jobs; a reviewer has no stamp or signature.
+- The signing translator is the creator.
+- Only the signer or an admin approves.
+- Jobs are visible to their creator and to admins only.
+- Release files are listed and downloadable only after a verified release.
+
+**Privacy.**
+- Progress events (SSE) carry stage, agent, cost and timing, never document text.
+- The Anthropic key stays on the server (`CERTIFLOW_ANTHROPIC_API_KEY`).
+
+**Uploads.** PDF, images and Word. Word files are converted to PDF with LibreOffice before intake. Per-file size
+limit: `CERTIFLOW_MAX_UPLOAD_MB`.
+
+**Not yet in Phase 3** (Phases 4 and 5):
+- the side-by-side review editor (the preview is read-only)
+- admin screens (users are created with the CLI)
+- the cost dashboard, retention and auto-deletion, encryption at rest for files, MinIO/S3 storage, backups
+- the Batch API "bulk, lower cost" option
+- glossary per language pair inside mixed-pair batches: one glossary per job for now

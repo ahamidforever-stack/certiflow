@@ -7,3 +7,8 @@ out/
 # client assets: confidential, never committed (stamps, signatures, templates, source documents)
 inputs/
 assets/
+data/
+web/node_modules/
+web/dist/
+office/
+*.tsbuildinfo
