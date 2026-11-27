@@ -2,7 +2,9 @@
 set -e
 # install licensed fonts supplied by the office (never baked into the image)
 if [ -d /fonts ] && ls /fonts/*.tt[fc] >/dev/null 2>&1; then
-  certiflow fonts install /fonts >/dev/null
+  certiflow fonts install /fonts >/dev/null 2>&1 || \
+    echo "WARNING: could not install the fonts in /fonts (check that the files are readable: chmod a+r);" \
+         "PDFs fall back to the open fonts" >&2
 fi
 case "$1" in
   web)

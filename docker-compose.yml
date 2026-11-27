@@ -1,4 +1,5 @@
 # CertiFlow production stack.  cp .env.example .env  (fill it in), then:  docker compose up -d --build
+# ./office holds the office assets (assets/shoreline/..., assets/fonts/...). Make them readable: chmod -R a+rX office
 # Users:  docker compose exec api certiflow web create-user amir.gomaa --role certified_translator --name "Amir Gomaa"
 services:
   postgres:
@@ -17,6 +18,7 @@ services:
     restart: unless-stopped
 
   api:
+    image: certiflow:latest
     build: .
     command: ["web"]
     env_file: .env
@@ -37,6 +39,7 @@ services:
     restart: unless-stopped
 
   worker:
+    image: certiflow:latest
     build: .
     command: ["worker"]
     env_file: .env

@@ -251,9 +251,8 @@ def cmd_web(args) -> int:
     if args.action == "init-db":
         from alembic import command
         from alembic.config import Config
-        root = Path(__file__).resolve().parents[1]
-        ac = Config(str(root / "alembic.ini"))
-        ac.set_main_option("script_location", str(root / "migrations"))
+        ac = Config()                       # migrations ship inside the package (works in any install)
+        ac.set_main_option("script_location", str(Path(__file__).resolve().parent / "migrations"))
         ac.set_main_option("sqlalchemy.url", cfg.database_url)
         command.upgrade(ac, "head")
         print("database ready:", cfg.database_url.split("@")[-1])
