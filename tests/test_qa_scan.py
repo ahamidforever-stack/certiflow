@@ -50,6 +50,12 @@ def test_reference_number_with_translated_prefix():
     assert identifiers_match(_doc("stamp 'No.00250490-001'", "ختم «رقم 00250490»")) != []
 
 
+def test_url_does_not_swallow_arabic_punctuation():
+    from certiflow.qa.scan import _IDENT
+    text = "info@haniit.com | www.haniit.com؛ دعم تسجيل الدخول: https://haniitsupport.com/»."
+    assert set(_IDENT.findall(text)) == {"info@haniit.com", "www.haniit.com", "https://haniitsupport.com/"}
+
+
 def test_real_codes_are_still_protected():
     d = _doc("Flat 12C, ref DLJ0240732, file AB-12-CD", "شقة 12، المرجع DLJ0240732، الملف AB-12")
     missing = identifiers_match(d)[0].detail
