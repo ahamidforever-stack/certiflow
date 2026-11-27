@@ -154,7 +154,8 @@ def figures_added(doc: Document) -> list[Finding]:
     return out
 
 
-_IDENT = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+|(?:https?://|www\.)[^\s<>\"]+[^\s<>\".,;:!?)]"
+# A URL never ends in punctuation, Latin or Arabic (، ؛ ؟), nor in a closing quote or bracket (» ” ’ ) ]).
+_IDENT = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+|(?:https?://|www\.)[^\s<>\"«»]+[^\s<>\".,;:!?)\]»”’،؛؟]"
                     r"|(?<![\w])(?=[A-Za-z0-9/.-]*[A-Za-z])(?=[A-Za-z0-9/.-]*\d)[A-Za-z0-9]+(?:[-/.][A-Za-z0-9]+)*(?![\w])")
 
 
