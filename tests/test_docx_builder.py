@@ -77,7 +77,7 @@ def test_seal_in_every_footer(library, tmp_path):
         for f in footers:
             root = etree.fromstring(z.read(f))
             assert len(root.findall(f".//{W}drawing")) == 2
-            assert SEAL_MARKER in "".join(root.itertext())
+            assert SEAL_MARKER not in "".join(root.itertext())   # marker lives in the PDF only
             # inline (not floating) so the footer grows and body text cannot overlap
             assert not root.findall(".//{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}anchor")
 

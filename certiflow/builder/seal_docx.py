@@ -71,7 +71,6 @@ def _anchored_seal(docx, ctx, seal: SealSpec):
                                  int(width_mm * EMU), int(h_mm * EMU), 9000 + n, f"CertiFlow {key} {n}", key, rid,
                                  int(width_mm * EMU), int(h_mm * EMU))
             par._p.append(parse_xml(xml))
-        _hidden_marker(par._p, ctx, seal.marker)
 
 
 def install_seal(docx, ctx, seal: SealSpec):
@@ -104,8 +103,7 @@ def _inline_seal(docx, ctx, seal: SealSpec):
             par.add_run().add_picture(str(seal.signature_png), width=Mm(seal.signature_width_mm))
             par.add_run("\t")
             par.add_run().add_picture(str(seal.stamp_png), width=Mm(seal.stamp_width_mm))
-            _hidden_marker(par._p, ctx, seal.marker)
-
+    
 
 def _hidden_marker(p_el, ctx, text: str):
     """Invisible marker for the release check. It inherits the paragraph's font, size and language

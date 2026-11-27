@@ -15,7 +15,7 @@ from ..house import HouseStyle
 from ..model import BlockType, Document, JobSpec, PageInfo
 from ..profiles import get_profile
 from .docx_builder import BuildOptions, SealSpec, render
-from .pdf_builder import (BuildError, docx_to_pdf, find_seal_on_page, merge, page_size, rasterize_source,
+from .pdf_builder import (BuildError, add_invisible_marker, docx_to_pdf, find_seal_on_page, merge, page_size, rasterize_source,
                           stamp_source_pages, text_seal_overlaps, upright,
                           verify_certified_pdf)
 
@@ -63,6 +63,7 @@ def build_package(model: Document, source: Path, job: JobSpec, library: AssetLib
         render(model, library.path(tpl), final_docx, BuildOptions(font_mode="word", **common))
         pdf_docx = render(model, library.path(tpl), td / f"{base}.docx", BuildOptions(font_mode="pdf", **common))
         tr_pdf = docx_to_pdf(pdf_docx, td / "tr")
+        add_invisible_marker(tr_pdf, seal.marker)
         n_tr = len(_reader(tr_pdf).pages)
         overlaps = text_seal_overlaps(tr_pdf, seal)
         if overlaps:
