@@ -58,7 +58,7 @@ Legend: ✅ done and tested · 🟡 partial / different from brief (see notes) �
 | 1 | Page order option "interleaved" (only when mapping reliable) | ✅ | Falls back to translation-then-source, with a disclosure |
 | 1 | Batch: one pair per document + zip | ✅ | |
 | 2 | Stamp choice required, no default; rights checked | ✅ | UI, API (422/403) and pipeline |
-| 2 | Asset Library (admin-managed) | 🟡 | JSON manifest + `setup-office` command; admin UI is Phase 5 |
+| 2 | Asset Library (admin-managed) | ✅ | Admin screen (Phase 5) on the JSON manifest; uploads never overwrite, replaced files are kept |
 | 3 | Agents: Intake, Glossary, Translator, Proofreader, QA, Formatter | ✅ | Prompt quality not yet tuned on real API runs (see §13) |
 | 3 | Builder deterministic, never LLM-written XML | ✅ | |
 | 3 | Human final review with side-by-side editor | 🟡 | Approval gate works; editor is a read-only preview; the side-by-side editor is Phase 4 |
@@ -387,6 +387,10 @@ little continuity for speed on very long documents.
 | `CERTIFLOW_SECRET_KEY` | generated per install in dev | Session signing key (**set in production**) |
 | `CERTIFLOW_SECURE_COOKIES` | `0` | `1` behind HTTPS |
 | `CERTIFLOW_SESSION_HOURS` | `12` | Session length |
+| `CERTIFLOW_LOGIN_MAX_FAILURES` | `5` | Failed sign-ins per username before it is locked |
+| `CERTIFLOW_LOGIN_IP_MAX_FAILURES` | `30` | Failed sign-ins per client address before it is locked |
+| `CERTIFLOW_LOGIN_LOCK_MINUTES` | `15` | Lock length (and the window the failures are counted in) |
+| `CERTIFLOW_TIMEZONE` | `Asia/Dubai` | Office time zone: the cost dashboard counts days in it |
 | `CERTIFLOW_MAX_UPLOAD_MB` | `80` | Per-file upload limit |
 | `CERTIFLOW_STATIC_DIR` | `web/dist` | Built frontend |
 | `CERTIFLOW_SETTINGS` | `config/agents.json` | Agent/model settings |
@@ -481,10 +485,19 @@ Tahoma for Arabic on Windows).
 - **Keeping confidential files out of git:** office assets, fonts, golden samples and `.env` are git-ignored (checked
   before every push).
 
+- **Sign-in limits (Phase 5):** 5 failures for one username or 30 from one address in 15 minutes lock sign-in
+  (HTTP 429 with `Retry-After`), even with the right password; a success resets the username count. Unknown
+  usernames are counted the same way and take the same time to check. Attempts are kept 30 days.
+- **Sessions (Phase 5):** the cookie names a row in `user_sessions`. Logout revokes it on the server, so a copied
+  cookie stops working. Users see their devices on the Account page and can sign out all others. A password change
+  (`certiflow web create-user`) or deactivation signs the user out everywhere.
+
+- **User administration (Phase 5):** admins manage accounts on the Users screen; every change is logged in
+  `admin_events` with the admin's name. The list shows whether a certified translator has a personal stamp in the
+  Asset Library (needed to certify).
+
 **Gaps:**
 - **Phase 5 items:**
-  - rate limiting and lockout on login
-  - session revocation (tokens are stateless; logout only clears the cookie)
   - encryption at rest for `/data` and the database (use encrypted volumes or disks at the cloud provider at minimum)
   - retention and auto-deletion of jobs and audit logs
   - per-client access groups

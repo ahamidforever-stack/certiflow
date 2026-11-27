@@ -13,7 +13,29 @@ export interface Job { id: string; title: string; created_at: string; status: st
   cost_by_agent?: Record<string, { calls: number; cost_usd: number; input_tokens: number; output_tokens: number }> }
 export interface GlossaryItem { source: string; target: string; kind: string; confirmed?: boolean }
 
-export class ApiError extends Error { constructor(public status: number, message: string) { super(message); } }
+export interface AdminUser extends User { active: boolean; created_at: string; last_login_at: string | null;
+  devices: number; locked: boolean; certified_stamp: boolean }
+export interface AdminEvent { at: string; actor: string; action: string; target: string; data: Record<string, unknown> }
+export type AssetType = "template" | "stamp_certified" | "stamp_office" | "signature";
+export interface AssetInfo { id: string; name: string; type: AssetType; active: boolean; owner_user?: string | null;
+  owner_company?: string | null; width_mm?: number | null; language?: string | null; pair?: string | null;
+  file: string; size: number | null; seal_from_template: boolean; source_layout: boolean; margins_mm?: Record<string, number> | null }
+export interface AssetListing { company: string; editable: boolean; assets: AssetInfo[];
+  users: { id: string; name: string; role: string }[]; accounts: { username: string; name: string; role: string }[] }
+export interface UsageAgent { agent: string; calls: number; cost_usd: number; input_tokens: number; output_tokens: number; cache_read_tokens: number }
+export interface Usage { days: number; timezone: string; from: string; to: string;
+  tiles: { today: number; week: number; month: number };
+  total: { cost_usd: number; calls: number; jobs: number; input_tokens: number; output_tokens: number; cache_read_tokens: number };
+  per_page_usd: number | null; pages: number;
+  by_day: { day: string; cost_usd: number; calls: number }[]; by_agent: UsageAgent[];
+  by_model: { model: string; calls: number; cost_usd: number }[];
+  by_user: { username: string; name: string; jobs: number; cost_usd: number }[];
+  top_jobs: { id: string; title: string; status: string; pages: number | null; by: string; cost_usd: number; calls: number }[] }
+export interface SessionInfo { id: string; created_at: string; last_seen_at: string; ip: string; user_agent: string; current: boolean }
+
+export class ApiError extends Error {
+  constructor(public status: number, message: string, public retryAfter?: number) { super(message); }
+}
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method, credentials: "same-origin", headers: {} as Record<string, string> };
@@ -27,7 +49,8 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   if (!r.ok) {
     let msg = r.statusText;
     try { const j = await r.json(); msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch { /* keep */ }
-    throw new ApiError(r.status, msg);
+    const ra = Number(r.headers.get("Retry-After"));
+    throw new ApiError(r.status, msg, Number.isFinite(ra) && ra > 0 ? ra : undefined);
   }
   return r.json() as Promise<T>;
 }
@@ -36,6 +59,23 @@ export const api = {
   me: () => req<User>("GET", "/api/me"),
   login: (username: string, password: string) => req<User>("POST", "/api/auth/login", { username, password }),
   logout: () => req("POST", "/api/auth/logout"),
+  // admin (Phase 5)
+  adminUsers: () => req<AdminUser[]>("GET", "/api/admin/users"),
+  adminCreateUser: (body: { username: string; name: string; role: Role; password: string }) => req<AdminUser>("POST", "/api/admin/users", body),
+  adminUpdateUser: (id: number, body: { name?: string; role?: Role; active?: boolean }) => req<AdminUser>("PATCH", `/api/admin/users/${id}`, body),
+  adminSetPassword: (id: number, password: string) => req<AdminUser>("POST", `/api/admin/users/${id}/password`, { password }),
+  adminUnlock: (id: number) => req<AdminUser>("POST", `/api/admin/users/${id}/unlock`),
+  adminSignOut: (id: number) => req<AdminUser>("POST", `/api/admin/users/${id}/sessions/revoke`),
+  adminAssets: () => req<AssetListing>("GET", "/api/admin/assets"),
+  adminAddImage: (fd: FormData) => req<AssetInfo>("POST", "/api/admin/assets/image", fd),
+  adminAddTemplate: (fd: FormData) => req<AssetInfo>("POST", "/api/admin/assets/template", fd),
+  adminUpdateAsset: (id: string, body: { active?: boolean; name?: string; width_mm?: number }) =>
+    req<AssetInfo>("PATCH", `/api/admin/assets/${encodeURIComponent(id)}`, body),
+  assetFile: (id: string) => `/api/admin/assets/${encodeURIComponent(id)}/file`,
+  adminUsage: (days: number) => req<Usage>("GET", `/api/admin/usage?days=${days}`),
+  adminEvents: () => req<AdminEvent[]>("GET", "/api/admin/events"),
+  sessions: () => req<SessionInfo[]>("GET", "/api/me/sessions"),
+  revokeOtherSessions: () => req<{ revoked: number }>("POST", "/api/me/sessions/revoke-others"),
   setLanguage: (ui_language: "en" | "ar") => req("POST", "/api/me/prefs", { ui_language }),
   languages: () => req<Language[]>("GET", "/api/languages"),
   stamps: () => req<StampOption[]>("GET", "/api/stamps"),

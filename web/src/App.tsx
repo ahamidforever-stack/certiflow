@@ -8,6 +8,10 @@ import NewJob from "./pages/NewJob";
 import JobView from "./pages/JobView";
 import Review from "./pages/Review";
 import Audit from "./pages/Audit";
+import Account from "./pages/Account";
+import Users from "./pages/Users";
+import Usage from "./pages/Usage";
+import Assets from "./pages/Assets";
 
 const AuthCtx = createContext<{ user: User | null; setUser: (u: User | null) => void }>({ user: null, setUser: () => {} });
 export const useAuth = () => useContext(AuthCtx);
@@ -31,6 +35,10 @@ export default function App() {
             <Route path="/jobs/:id" element={<JobView />} />
             <Route path="/jobs/:id/review/:doc" element={<Review />} />
             <Route path="/jobs/:id/audit" element={<Audit />} />
+            <Route path="/account" element={<Account />} />
+            {user.role === "admin" && <Route path="/admin/users" element={<Users />} />}
+            {user.role === "admin" && <Route path="/admin/usage" element={<Usage />} />}
+            {user.role === "admin" && <Route path="/admin/assets" element={<Assets />} />}
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </Shell>
@@ -46,7 +54,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   const { user, setUser } = useAuth();
   const loc = useLocation();
   const nav = (to: string, label: string) => (
-    <Link to={to} className={`rounded-md px-3 py-1.5 text-sm font-medium ${loc.pathname === to ? "bg-white/15 text-white" : "text-brand-100 hover:text-white"}`}>{label}</Link>
+    <Link to={to} className={`whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ${loc.pathname === to ? "bg-white/15 text-white" : "text-brand-100 hover:text-white"}`}>{label}</Link>
   );
   const switchLang = () => {
     const next = lang === "en" ? "ar" : "en";
@@ -64,10 +72,10 @@ function Shell({ children }: { children: React.ReactNode }) {
               <div className="text-xs text-brand-100">{t("office")}</div>
             </div>
           </Link>
-          <nav className="flex gap-1 ms-4">{nav("/", t("jobs"))}{nav("/new", t("newJob"))}</nav>
+          <nav className="order-last flex w-full flex-wrap gap-1 md:order-none md:ms-4 md:w-auto">{nav("/", t("jobs"))}{nav("/new", t("newJob"))}{user?.role === "admin" && <>{nav("/admin/users", t("users"))}{nav("/admin/assets", t("assets"))}{nav("/admin/usage", t("costs"))}</>}</nav>
           <div className="ms-auto flex items-center gap-3 text-sm">
             <button onClick={switchLang} className="rounded-md border border-white/30 px-2.5 py-1 hover:bg-white/10">{t("language")}</button>
-            <span className="text-brand-100">{user?.name}</span>
+            <Link to="/account" title={t("account")} className="text-brand-100 hover:text-white hover:underline">{user?.name}</Link>
             <button className="text-brand-100 hover:text-white" onClick={() => api.logout().finally(() => setUser(null))}>{t("signOut")}</button>
           </div>
         </div>

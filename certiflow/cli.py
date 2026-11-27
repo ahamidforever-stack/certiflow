@@ -255,11 +255,16 @@ def cmd_web(args) -> int:
         ac.set_main_option("script_location", str(Path(__file__).resolve().parent / "migrations"))
         ac.set_main_option("sqlalchemy.url", cfg.database_url)
         command.upgrade(ac, "head")
-        print("database ready:", cfg.database_url.split("@")[-1])
+        from .web.db import session_factory
+        from .web.usage import backfill
+        with session_factory(cfg.database_url)() as s:     # cost dashboard: copy usage of older jobs once
+            n = backfill(s, cfg.jobs_dir)
+            s.commit()
+        print("database ready:", cfg.database_url.split("@")[-1] + (f" (usage of {n} jobs added)" if n else ""))
         return 0
     if args.action == "create-user":
         from .web.auth import hash_password
-        from .web.db import User, session_factory, user_by_username
+        from .web.db import User, revoke_sessions, session_factory, user_by_username
         if args.role not in ("admin", "certified_translator", "reviewer"):
             sys.exit("role must be admin, certified_translator or reviewer")
         pw = args.password or getpass.getpass("Password: ")
@@ -274,6 +279,7 @@ def cmd_web(args) -> int:
             else:
                 u.role, u.password_hash = args.role, hash_password(pw)
                 u.name = args.name or u.name
+                revoke_sessions(s, u.id)          # a new password signs the user out everywhere
             s.commit()
         print(f"user {args.username.lower()} saved ({args.role})")
         return 0

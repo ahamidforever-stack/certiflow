@@ -49,6 +49,7 @@ class Job(Base):
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
     approved_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    pages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)   # source pages (from Intake)
     documents: Mapped[list["JobDocument"]] = relationship(back_populates="job", order_by="JobDocument.idx",
                                                           cascade="all, delete-orphan")
 
@@ -74,6 +75,75 @@ class JobEvent(Base):
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     kind: Mapped[str] = mapped_column(String(40))
     data: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class LlmUsage(Base):
+    """One model call, copied from the job's audit log for the cost dashboard (numbers only, no text)."""
+    __tablename__ = "llm_usage"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    document: Mapped[str] = mapped_column(String(10), default="")
+    agent: Mapped[str] = mapped_column(String(40))
+    model: Mapped[str] = mapped_column(String(80), default="")
+    prompt_version: Mapped[str] = mapped_column(String(20), default="")
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_read_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_write_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+
+
+class LoginAttempt(Base):
+    """One sign-in try (for lockout and rate limiting). Kept 30 days; no password, only the typed username."""
+    __tablename__ = "login_attempts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    username: Mapped[str] = mapped_column(String(80), index=True)
+    ip: Mapped[str] = mapped_column(String(64), index=True)
+    ok: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class UserSession(Base):
+    """A signed-in browser. The cookie names this row; deleting or revoking it signs the browser out."""
+    __tablename__ = "user_sessions"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    ip: Mapped[str] = mapped_column(String(64), default="")
+    user_agent: Mapped[str] = mapped_column(String(200), default="")
+
+
+class AdminEvent(Base):
+    """Who changed which user account and how (never passwords)."""
+    __tablename__ = "admin_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    actor: Mapped[str] = mapped_column(String(80))
+    action: Mapped[str] = mapped_column(String(40))       # user_created | user_updated | password_reset | ...
+    target: Mapped[str] = mapped_column(String(80), index=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+ROLES = ("admin", "certified_translator", "reviewer")
+
+
+def aware(dt: Optional[datetime]) -> Optional[datetime]:
+    """SQLite returns naive datetimes; treat them as UTC."""
+    return dt.replace(tzinfo=timezone.utc) if dt is not None and dt.tzinfo is None else dt
+
+
+def revoke_sessions(s, user_id: int, keep: Optional[str] = None) -> int:
+    """Revoke every open session of a user (except ``keep``). Caller commits."""
+    n = 0
+    for row in s.scalars(select(UserSession).where(UserSession.user_id == user_id, UserSession.revoked_at.is_(None))):
+        if row.id != keep:
+            row.revoked_at = utcnow()
+            n += 1
+    return n
 
 
 _engines: dict[str, object] = {}

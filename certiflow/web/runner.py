@@ -18,6 +18,7 @@ from typing import Any
 from .config import WebConfig, get_config
 from .db import Job as JobRow
 from .db import JobEvent, session_factory
+from .usage import sync_job
 
 _pool: ThreadPoolExecutor | None = None
 
@@ -72,7 +73,7 @@ def advance(job_id: str, resume: Any = None, cfg: WebConfig | None = None) -> di
         row.status, row.error = status, err
         row.stage = res.get("stage") or row.stage
         if job is not None:
-            row.cost_usd = round(sum(a["cost_usd"] for a in job.audit_totals().values()), 4)
+            row.cost_usd = sync_job(s, job_id, job_dir(cfg, job_id))
         if status == "released":
             appr = json.loads((job_dir(cfg, job_id) / "approval.json").read_text("utf-8"))
             row.approved_at = datetime.fromisoformat(appr["at"])
@@ -104,7 +105,7 @@ def rerun(job_id: str, doc_key: str, agent: str, blocks: list[str], instruction:
         row = s.get(JobRow, job_id)
         row.status, row.error = "waiting_review", err
         if job is not None:
-            row.cost_usd = round(sum(a["cost_usd"] for a in job.audit_totals().values()), 4)
+            row.cost_usd = sync_job(s, job_id, job_dir(cfg, job_id))
         _event(s, job_id, "status", status="waiting_review", error=err)
         s.commit()
     return {"changes": changes, "error": err}

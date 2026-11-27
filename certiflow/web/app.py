@@ -16,7 +16,7 @@ import re
 import secrets
 import shutil
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -24,17 +24,18 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Respon
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 
 from .. import review as rv
 from ..assets import AssetError, AssetLibrary
 from ..model import JobSpec, PageOrder, StampChoice
 from ..profiles import all_profiles, get_profile
 from . import runner
-from .auth import COOKIE, make_token, read_token, verify_password
+from .auth import COOKIE, hash_password, make_token, read_token, verify_dummy, verify_password
 from .config import WebConfig, get_config, set_config
 from .db import Job as JobRow
-from .db import JobDocument, JobEvent, User, session_factory, user_by_username
+from .db import (ROLES, AdminEvent, JobDocument, JobEvent, LoginAttempt, User, UserSession, aware, revoke_sessions,
+                 session_factory, user_by_username, utcnow)
 
 SOURCE_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".docx", ".doc", ".odt", ".rtf"}
 CONVERT_EXT = {".docx", ".doc", ".odt", ".rtf"}
@@ -52,6 +53,32 @@ _review_lock = threading.Lock()   # one review write at a time (thread runner; C
 
 class LoginIn(BaseModel):
     username: str
+    password: str
+
+
+USERNAME = re.compile(r"[a-z0-9._-]{2,80}")
+
+
+class UserCreateIn(BaseModel):
+    username: str
+    name: str
+    role: str
+    password: str
+
+
+class UserUpdateIn(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    active: Optional[bool] = None
+
+
+class AssetUpdateIn(BaseModel):
+    active: Optional[bool] = None
+    name: Optional[str] = None
+    width_mm: Optional[float] = None
+
+
+class PasswordIn(BaseModel):
     password: str
 
 
@@ -106,36 +133,352 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
 
     # ------------------------------------------------------------------ auth
 
-    def current_user(request: Request) -> User:
+    def _session(request: Request) -> tuple[User, UserSession]:
         tok = request.cookies.get(COOKIE)
-        uid = read_token(tok, cfg.secret_key) if tok else None
-        if uid is None:
+        got = read_token(tok, cfg.secret_key) if tok else None
+        if got is None:
             raise HTTPException(401, "not signed in")
+        uid, sid = got
         with Session() as s:
+            row = s.get(UserSession, sid)
+            now = utcnow()
+            if (row is None or row.user_id != uid or row.revoked_at is not None or aware(row.expires_at) <= now):
+                raise HTTPException(401, "not signed in")
             u = s.get(User, uid)
             if u is None or not u.active:
                 raise HTTPException(401, "not signed in")
-            return u
+            if now - aware(row.last_seen_at) > timedelta(minutes=1):   # throttled write
+                row.last_seen_at = now
+                s.commit()
+            return u, row
+
+    def current_user(request: Request) -> User:
+        return _session(request)[0]
 
     def csrf(request: Request) -> None:
         if request.method not in ("GET", "HEAD", "OPTIONS") and request.headers.get("x-certiflow") != "1":
             raise HTTPException(403, "missing X-CertiFlow header")
 
+    def _client_ip(request: Request) -> str:
+        return (request.client.host if request.client else "")[:64]
+
+    def _user_failures(s, username: str) -> int:
+        """Failed sign-ins for this username in the lock window, counted after its last success."""
+        since = utcnow() - timedelta(minutes=cfg.login_lock_minutes)
+        last_ok = s.scalar(select(func.max(LoginAttempt.at)).where(LoginAttempt.username == username,
+                                                                   LoginAttempt.ok.is_(True)))
+        start = max(since, aware(last_ok)) if last_ok else since
+        return s.scalar(select(func.count()).select_from(LoginAttempt).where(
+            LoginAttempt.username == username, LoginAttempt.ok.is_(False), LoginAttempt.at > start))
+
+    def _locked(s, username: str, ip: str) -> bool:
+        """Too many recent failures for this username (since its last success) or from this address."""
+        since = utcnow() - timedelta(minutes=cfg.login_lock_minutes)
+        by_ip = s.scalar(select(func.count()).select_from(LoginAttempt).where(
+            LoginAttempt.ip == ip, LoginAttempt.ok.is_(False), LoginAttempt.at > since))
+        return _user_failures(s, username) >= cfg.login_max_failures or by_ip >= cfg.login_ip_max_failures
 
     @app.post("/api/auth/login")
-    def login(body: LoginIn, response: Response, _=Depends(csrf)):
+    def login(body: LoginIn, request: Request, response: Response, _=Depends(csrf)):
+        username, ip = body.username.strip().lower()[:80], _client_ip(request)
         with Session() as s:
-            u = user_by_username(s, body.username.strip().lower())
-            if u is None or not u.active or not verify_password(body.password, u.password_hash):
+            s.execute(delete(LoginAttempt).where(LoginAttempt.at < utcnow() - timedelta(days=30)))
+            s.execute(delete(UserSession).where(UserSession.expires_at < utcnow() - timedelta(days=30)))
+            if _locked(s, username, ip):
+                s.commit()
+                raise HTTPException(429, "too many failed sign-ins; try again later",
+                                    headers={"Retry-After": str(cfg.login_lock_minutes * 60)})
+            u = user_by_username(s, username)
+            if u is None:
+                verify_dummy(body.password)
+            ok = u is not None and u.active and verify_password(body.password, u.password_hash)
+            s.add(LoginAttempt(username=username, ip=ip, ok=ok))
+            if not ok:
+                s.commit()
                 raise HTTPException(401, "wrong username or password")
-            response.set_cookie(COOKIE, make_token(u.id, cfg.secret_key, cfg.session_hours), httponly=True,
+            sess = UserSession(id=secrets.token_hex(24), user_id=u.id, ip=ip,
+                               user_agent=(request.headers.get("user-agent") or "")[:200],
+                               expires_at=utcnow() + timedelta(hours=cfg.session_hours))
+            s.add(sess)
+            s.commit()
+            response.set_cookie(COOKIE, make_token(u.id, sess.id, cfg.secret_key, cfg.session_hours), httponly=True,
                                 samesite="strict", secure=cfg.secure_cookies, max_age=cfg.session_hours * 3600)
             return _user_out(u)
 
     @app.post("/api/auth/logout")
-    def logout(response: Response, _=Depends(csrf)):
+    def logout(request: Request, response: Response, _=Depends(csrf)):
+        got = read_token(request.cookies.get(COOKIE) or "", cfg.secret_key)
+        if got:
+            with Session() as s:
+                row = s.get(UserSession, got[1])
+                if row is not None and row.user_id == got[0] and row.revoked_at is None:
+                    row.revoked_at = utcnow()
+                    s.commit()
         response.delete_cookie(COOKIE)
         return {"ok": True}
+
+    @app.get("/api/me/sessions")
+    def my_sessions(request: Request):
+        u, cur = _session(request)
+        with Session() as s:
+            rows = s.scalars(select(UserSession).where(UserSession.user_id == u.id, UserSession.revoked_at.is_(None),
+                                                       UserSession.expires_at > utcnow())
+                             .order_by(UserSession.last_seen_at.desc())).all()
+            return [{"id": r.id[:8], "created_at": _iso(r.created_at), "last_seen_at": _iso(r.last_seen_at),
+                     "ip": r.ip, "user_agent": r.user_agent, "current": r.id == cur.id} for r in rows]
+
+    @app.post("/api/me/sessions/revoke-others")
+    def revoke_others(request: Request, _=Depends(csrf)):
+        u, cur = _session(request)
+        with Session() as s:
+            n = revoke_sessions(s, u.id, keep=cur.id)
+            s.commit()
+        return {"revoked": n}
+
+    # ------------------------------------------------------------------ admin: users
+
+    def admin_user(u: User = Depends(current_user)) -> User:
+        if u.role != "admin":
+            raise HTTPException(403, "administrators only")
+        return u
+
+    def _admin_out(s, r: User) -> dict:
+        last = s.scalar(select(func.max(LoginAttempt.at)).where(LoginAttempt.username == r.username,
+                                                                LoginAttempt.ok.is_(True)))
+        devices = s.scalar(select(func.count()).select_from(UserSession).where(
+            UserSession.user_id == r.id, UserSession.revoked_at.is_(None), UserSession.expires_at > utcnow()))
+        try:
+            library().stamp_for(StampChoice.certified, r.username)
+            stamp = True
+        except AssetError:
+            stamp = False
+        return {**_user_out(r), "active": r.active, "created_at": _iso(r.created_at),
+                "last_login_at": _iso(last) if last else None, "devices": devices,
+                "locked": _user_failures(s, r.username) >= cfg.login_max_failures, "certified_stamp": stamp}
+
+    def _sync_lib_user(r: User) -> None:
+        """Stamp rights are checked against the library's user list; keep names and roles in step."""
+        from . import assets_admin as aa
+        try:
+            aa.sync_user(cfg.library, r.username, r.name, r.role)
+        except Exception:  # noqa: BLE001 - the account change itself has succeeded
+            pass
+
+    def _log(s, actor: User, action: str, target: str, **data) -> None:
+        s.add(AdminEvent(actor=actor.username, action=action, target=target, data=data))
+
+    def _target(s, user_id: int) -> User:
+        r = s.get(User, user_id)
+        if r is None:
+            raise HTTPException(404, "no such user")
+        return r
+
+    def _check_password(pw: str) -> None:
+        if len(pw) < 10:
+            raise HTTPException(422, "the password needs at least 10 characters")
+
+    def _keeps_an_admin(s, r: User, role: str, active: bool) -> None:
+        """Refuse a change that would leave no active administrator."""
+        if r.role == "admin" and r.active and (role != "admin" or not active):
+            others = s.scalar(select(func.count()).select_from(User).where(
+                User.role == "admin", User.active.is_(True), User.id != r.id))
+            if not others:
+                raise HTTPException(409, "this is the last active administrator")
+
+    @app.get("/api/admin/users")
+    def admin_users(_: User = Depends(admin_user)):
+        with Session() as s:
+            return [_admin_out(s, r) for r in s.scalars(select(User).order_by(User.active.desc(), User.name))]
+
+    @app.post("/api/admin/users", status_code=201)
+    def admin_create_user(body: UserCreateIn, a: User = Depends(admin_user), _=Depends(csrf)):
+        username = body.username.strip().lower()
+        if not USERNAME.fullmatch(username):
+            raise HTTPException(422, "username: 2-80 characters, letters a-z, digits, dot, dash or underscore")
+        if body.role not in ROLES:
+            raise HTTPException(422, "unknown role")
+        if not body.name.strip():
+            raise HTTPException(422, "name is required")
+        _check_password(body.password)
+        with Session() as s:
+            if user_by_username(s, username):
+                raise HTTPException(409, "this username exists")
+            r = User(username=username, name=body.name.strip()[:200], role=body.role,
+                     password_hash=hash_password(body.password))
+            s.add(r)
+            _log(s, a, "user_created", username, role=body.role)
+            s.commit()
+            _sync_lib_user(r)
+            return _admin_out(s, r)
+
+    @app.patch("/api/admin/users/{user_id}")
+    def admin_update_user(user_id: int, body: UserUpdateIn, a: User = Depends(admin_user), _=Depends(csrf)):
+        with Session() as s:
+            r = _target(s, user_id)
+            role = body.role if body.role is not None else r.role
+            active = body.active if body.active is not None else r.active
+            if role not in ROLES:
+                raise HTTPException(422, "unknown role")
+            if r.id == a.id and (role != r.role or not active):
+                raise HTTPException(409, "you cannot change your own role or deactivate yourself")
+            _keeps_an_admin(s, r, role, active)
+            changed = {}
+            if body.name is not None and body.name.strip() and body.name.strip() != r.name:
+                r.name, changed["name"] = body.name.strip()[:200], True
+            if role != r.role:
+                changed["role"] = [r.role, role]
+                r.role = role
+            if active != r.active:
+                changed["active"] = active
+                r.active = active
+                if not active:
+                    revoke_sessions(s, r.id)
+            if changed:
+                _log(s, a, "user_updated", r.username, **changed)
+            s.commit()
+            if "name" in changed or "role" in changed:
+                _sync_lib_user(r)
+            return _admin_out(s, r)
+
+    @app.post("/api/admin/users/{user_id}/password")
+    def admin_reset_password(user_id: int, body: PasswordIn, a: User = Depends(admin_user), _=Depends(csrf)):
+        _check_password(body.password)
+        with Session() as s:
+            r = _target(s, user_id)
+            r.password_hash = hash_password(body.password)
+            n = revoke_sessions(s, r.id, keep=None)
+            _log(s, a, "password_reset", r.username, signed_out=n)
+            s.commit()
+            return _admin_out(s, r)
+
+    @app.post("/api/admin/users/{user_id}/unlock")
+    def admin_unlock(user_id: int, a: User = Depends(admin_user), _=Depends(csrf)):
+        with Session() as s:
+            r = _target(s, user_id)
+            s.execute(delete(LoginAttempt).where(LoginAttempt.username == r.username, LoginAttempt.ok.is_(False)))
+            _log(s, a, "user_unlocked", r.username)
+            s.commit()
+            return _admin_out(s, r)
+
+    @app.post("/api/admin/users/{user_id}/sessions/revoke")
+    def admin_revoke_sessions(user_id: int, request: Request, a: User = Depends(admin_user), _=Depends(csrf)):
+        cur = _session(request)[1]
+        with Session() as s:
+            r = _target(s, user_id)
+            n = revoke_sessions(s, r.id, keep=cur.id if r.id == a.id else None)   # never the admin's own browser
+            _log(s, a, "signed_out", r.username, sessions=n)
+            s.commit()
+            return _admin_out(s, r)
+
+    # ------------------------------------------------------------------ admin: asset library
+
+    @app.get("/api/admin/assets")
+    def admin_assets(_: User = Depends(admin_user)):
+        from . import assets_admin as aa
+        out = aa.listing(cfg.library)
+        with Session() as s:
+            accounts = {u.username: u for u in s.scalars(select(User))}
+        out["accounts"] = [{"username": u.username, "name": u.name, "role": u.role} for u in accounts.values()
+                           if u.active and u.role == "certified_translator"]
+        return out
+
+    @app.get("/api/admin/assets/{asset_id}/file")
+    def admin_asset_file(asset_id: str, _: User = Depends(admin_user)):
+        lib = library()
+        a = next((x for x in lib.lib.assets if x.id == asset_id), None)
+        if a is None or not lib.path(a).is_file():
+            raise HTTPException(404, "no such asset")
+        p = lib.path(a)
+        if a.type == "template":
+            return FileResponse(p, filename=p.name, headers={"Cache-Control": "private, no-store"},
+                                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        return FileResponse(p, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+
+    def _asset_error(e: Exception):
+        from . import assets_admin as aa
+        if isinstance(e, KeyError):
+            raise HTTPException(404, "no such asset")
+        if isinstance(e, aa.AssetAdminError):
+            raise HTTPException(409 if "read-only" in str(e) else 422, str(e))
+        raise e
+
+    @app.post("/api/admin/assets/image", status_code=201)
+    async def admin_add_image(kind: str = Form(...), file: UploadFile = File(...), owner: Optional[str] = Form(None),
+                              width_mm: Optional[float] = Form(None), name: Optional[str] = Form(None),
+                              a: User = Depends(admin_user), _=Depends(csrf)):
+        from . import assets_admin as aa
+        data = await file.read(aa.MAX_BYTES + 1)
+        owner_name = None
+        if owner:
+            with Session() as s:
+                acc = user_by_username(s, owner)
+                if acc is None or acc.role != "certified_translator" or not acc.active:
+                    raise HTTPException(422, "the owner must be an active certified translator")
+                owner_name = acc.name
+            aa.sync_user(cfg.library, acc.username, acc.name, acc.role)
+        try:
+            asset = await asyncio.to_thread(aa.add_image, cfg.library, kind, data, owner=owner,
+                                            owner_name=owner_name, width_mm=width_mm, name=name)
+        except Exception as e:  # noqa: BLE001
+            _asset_error(e)
+        with Session() as s:
+            _log(s, a, "asset_added", asset.id, type=kind, owner=owner)
+            s.commit()
+        return aa.asset_out(library(), asset)
+
+    @app.post("/api/admin/assets/template", status_code=201)
+    async def admin_add_template(file: UploadFile = File(...), name: Optional[str] = Form(None),
+                                 language: Optional[str] = Form(None), pair: Optional[str] = Form(None),
+                                 reference_docx: Optional[UploadFile] = File(None),
+                                 reference_pdf: Optional[UploadFile] = File(None),
+                                 a: User = Depends(admin_user), _=Depends(csrf)):
+        from . import assets_admin as aa
+        langs = {p.code for p in all_profiles()}
+        if language and language not in langs:
+            raise HTTPException(422, "unknown language")
+        if pair and (pair.count(">") != 1 or any(x not in langs for x in pair.split(">"))):
+            raise HTTPException(422, "pair must look like en>ar")
+        data = await file.read(aa.MAX_BYTES + 1)
+        ref_docx = await reference_docx.read(aa.MAX_BYTES + 1) if reference_docx and reference_docx.filename else None
+        ref_pdf = await reference_pdf.read(aa.MAX_BYTES + 1) if reference_pdf and reference_pdf.filename else None
+        try:
+            asset = await asyncio.to_thread(aa.add_template, cfg.library, data, name=name, language=language, pair=pair,
+                                            reference_docx=ref_docx, reference_pdf=ref_pdf)
+        except Exception as e:  # noqa: BLE001
+            _asset_error(e)
+        with Session() as s:
+            _log(s, a, "asset_added", asset.id, type="template", reference=bool(ref_docx or ref_pdf))
+            s.commit()
+        return aa.asset_out(library(), asset)
+
+    @app.patch("/api/admin/assets/{asset_id}")
+    def admin_update_asset(asset_id: str, body: AssetUpdateIn, a: User = Depends(admin_user), _=Depends(csrf)):
+        from . import assets_admin as aa
+        try:
+            asset, changed = aa.update(cfg.library, asset_id, active=body.active, name=body.name,
+                                       width_mm=body.width_mm)
+        except Exception as e:  # noqa: BLE001
+            _asset_error(e)
+        if changed:
+            with Session() as s:
+                _log(s, a, "asset_updated", asset.id, **changed)
+                s.commit()
+        return aa.asset_out(library(), asset)
+
+    @app.get("/api/admin/usage")
+    def admin_usage(days: int = 30, _: User = Depends(admin_user)):
+        from .usage import summary
+        if days not in (7, 30, 90, 365):
+            raise HTTPException(422, "days must be 7, 30, 90 or 365")
+        with Session() as s:
+            return summary(s, days, cfg.timezone)
+
+    @app.get("/api/admin/events")
+    def admin_events(_: User = Depends(admin_user)):
+        with Session() as s:
+            rows = s.scalars(select(AdminEvent).order_by(AdminEvent.at.desc()).limit(200))
+            return [{"at": _iso(e.at), "actor": e.actor, "action": e.action, "target": e.target, "data": e.data}
+                    for e in rows]
 
     @app.get("/api/me")
     def me(u: User = Depends(current_user)):

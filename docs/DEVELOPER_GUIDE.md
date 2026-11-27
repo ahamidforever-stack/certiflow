@@ -170,3 +170,33 @@ Dockerfile, docker-compose.yml, docker/entrypoint.sh, .env.example
   v1 stays active until `golden score` passes with v2 (`docs/PROMPT_VERSIONING.md`).
 - **UI:** `web/src/pages/Review.tsx` (side-by-side editor), `Audit.tsx`, the approval confirmation in `JobView.tsx`.
 - **Tests:** `tests/test_web.py` (review, re-run, preview, audit) and `web/e2e/walkthrough.spec.ts`.
+
+## 8. Phase 5: hardening (in progress, branch `claude/phase5-hardening`)
+
+- **Step 1, sign-in limits and sessions (done):** `login_attempts` and `user_sessions` tables (migration 0002).
+  The cookie carries a session id; `_session()` in `web/app.py` checks the row on every request. Endpoints:
+  `GET /api/me/sessions`, `POST /api/me/sessions/revoke-others`. Screen: `web/src/pages/Account.tsx`.
+  Rules: SPEC §8. After upgrading, everyone signs in once again (old cookies have no session id).
+- **Step 2, user administration (done):** admins only. `GET/POST /api/admin/users`, `PATCH /api/admin/users/{id}`
+  (name, role, active), `POST …/{id}/password`, `…/{id}/unlock`, `…/{id}/sessions/revoke`, `GET /api/admin/events`.
+  Every change is written to `admin_events` (migration 0003; never a password). Guards: an admin cannot change their
+  own role or deactivate themselves, and the last active admin cannot be removed. Deactivating a user or setting a new
+  password signs them out everywhere. Screen: `web/src/pages/Users.tsx` (menu "Users", admins only).
+- **Step 3, usage and cost dashboard (done):** `web/usage.py`. `sync_job()` copies a job's `llm_call` records (numbers
+  only) from `audit.jsonl` into the `llm_usage` table and stores the job's page count (`jobs.pages`, from Intake);
+  the runner calls it whenever it updates `jobs.cost_usd`. `certiflow web init-db` backfills older jobs once
+  (migration 0004). `GET /api/admin/usage?days=7|30|90|365` returns tiles (today, 7 days, this month), per day, per
+  agent, per model, per user (job creator), top jobs and the average cost per page. Days follow
+  `CERTIFLOW_TIMEZONE` (default `Asia/Dubai`). Screen: `web/src/pages/Usage.tsx` (menu "Costs", admins only).
+- **Step 4, Asset Library administration (done):** `web/assets_admin.py`. Admins upload certified stamps and
+  signatures (per translator), the office stamp and Word templates on the "Stamps & templates" screen
+  (`web/src/pages/Assets.tsx`). Endpoints: `GET /api/admin/assets`, `GET /api/admin/assets/{id}/file`,
+  `POST /api/admin/assets/image` (kind, file, owner, width_mm), `POST /api/admin/assets/template` (file, language,
+  pair, optional `reference_docx`/`reference_pdf`), `PATCH /api/admin/assets/{id}` (active, name, width_mm).
+  Same processing as `setup-office` (background removal; template import with an optional approved sample).
+  Files are never overwritten: each upload gets a new file and id, and the asset it replaces is switched off but
+  kept. The manifest is written atomically under a lock. The bundled `samples/` library is read-only. The library's
+  user list follows the web accounts (create/rename/role change, and when a stamp is assigned).
+  **Decision:** the manifest stays a JSON file on the shared volume rather than moving to the database, so workers
+  and the CLI keep reading one source; revisit together with S3/MinIO storage.
+

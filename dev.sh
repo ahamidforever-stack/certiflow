@@ -15,6 +15,9 @@ export CERTIFLOW_LLM="${CERTIFLOW_LLM:-mock}"
 # Restart cleanly if an earlier run is still holding the ports
 fuser -k 8000/tcp 5173/tcp >/dev/null 2>&1 || true
 
+# Bring the database schema up to date (Alembic migrations; does nothing if already current)
+certiflow web init-db
+
 certiflow web serve --port 8000 &
 API=$!
 (cd web && npm run dev -- --port 5173 --strictPort) &
