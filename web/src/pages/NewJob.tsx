@@ -17,6 +17,8 @@ export default function NewJob() {
   const [target, setTarget] = useState("ar");
   const [stamp, setStamp] = useState<"" | "certified" | "office">("");   // no default, on purpose
   const [docType, setDocType] = useState("");
+  const [client, setClient] = useState("");
+  const [clients, setClients] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
   const [order, setOrder] = useState("translation_then_source");
   const [drag, setDrag] = useState(false);
@@ -24,6 +26,7 @@ export default function NewJob() {
   const [error, setError] = useState("");
   const input = useRef<HTMLInputElement>(null);
 
+  useEffect(() => { api.clients().then(setClients).catch(() => {}); }, []);
   useEffect(() => {
     api.languages().then(setLangs);
     api.stamps().then(setStamps);
@@ -52,6 +55,7 @@ export default function NewJob() {
     fd.append("stamp", stamp);
     fd.append("page_order", order);
     if (docType) fd.append("document_type", docType);
+    if (client.trim()) fd.append("client", client.trim());
     if (notes) fd.append("notes", notes);
     const ov: Record<string, { source_language: string; target_language: string }> = {};
     files.forEach((p, i) => { if (p.source || p.target) ov[i] = { source_language: p.source ?? source, target_language: p.target ?? target }; });
@@ -132,7 +136,13 @@ export default function NewJob() {
               ))}
             </div>
           )}
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="mt-4">
+            <label className="label" htmlFor="cl">{t("client")}</label>
+            <input id="cl" className="input" dir="auto" list="cl-list" autoComplete="off" placeholder={t("clientPh")} value={client} onChange={(e) => setClient(e.target.value)} />
+            <datalist id="cl-list">{clients.map((c) => <option key={c} value={c} />)}</datalist>
+            <p className="mt-1 text-xs text-slate-500">{t("clientHint")}</p>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div><label className="label" htmlFor="dt">{t("docType")}</label><input id="dt" className="input" placeholder={t("docTypePh")} value={docType} onChange={(e) => setDocType(e.target.value)} /></div>
             <div><label className="label" htmlFor="po">{t("pageOrder")}</label>
               <select id="po" className="input" value={order} onChange={(e) => setOrder(e.target.value)}>

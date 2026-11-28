@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, create_engine, select
+from sqlalchemy import (JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint,
+                        create_engine, select)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 
@@ -50,6 +51,7 @@ class Job(Base):
     approved_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     pages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)   # source pages (from Intake)
+    client: Mapped[Optional[str]] = mapped_column(String(200), nullable=True, index=True)  # for glossary memory
     documents: Mapped[list["JobDocument"]] = relationship(back_populates="job", order_by="JobDocument.idx",
                                                           cascade="all, delete-orphan")
 
@@ -92,6 +94,28 @@ class LlmUsage(Base):
     cache_read_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cache_write_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+
+
+class ClientTerm(Base):
+    """Glossary memory: a term confirmed for a client and language pair, offered again in that client's next jobs."""
+    __tablename__ = "client_terms"
+    __table_args__ = (UniqueConstraint("client_key", "source_language", "target_language", "source"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_key: Mapped[str] = mapped_column(String(200), index=True)     # normalised client name
+    client: Mapped[str] = mapped_column(String(200))                     # as last typed
+    source_language: Mapped[str] = mapped_column(String(10))
+    target_language: Mapped[str] = mapped_column(String(10))
+    source: Mapped[str] = mapped_column(String(500))
+    target: Mapped[str] = mapped_column(String(500))
+    kind: Mapped[str] = mapped_column(String(20), default="term")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(80), default="")
+    job_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)   # last job that confirmed it
+    uses: Mapped[int] = mapped_column(Integer, default=1)
+
+
+def client_key(name: Optional[str]) -> str:
+    return " ".join((name or "").split()).casefold()[:200]
 
 
 class LoginAttempt(Base):

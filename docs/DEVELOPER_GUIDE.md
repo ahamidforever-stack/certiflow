@@ -199,4 +199,20 @@ Dockerfile, docker-compose.yml, docker/entrypoint.sh, .env.example
   user list follows the web accounts (create/rename/role change, and when a stamp is assigned).
   **Decision:** the manifest stays a JSON file on the shared volume rather than moving to the database, so workers
   and the CLI keep reading one source; revisit together with S3/MinIO storage.
+- **Step 5, glossary memory, model settings, languages (done):**
+  - *Glossary memory per client:* `jobs.client` and the `client_terms` table (migration 0005). New job takes an
+    optional client name; the API writes that client's terms for the job's target language(s) to
+    `glossary.memory.json` in the job folder. `Job.remembered_terms()` seeds the glossary step with the terms whose
+    source text occurs in the batch (pre-confirmed); the agent only adds new ones (no prompt change). Confirming a
+    glossary upserts its terms for the client and the pair Intake detected. Client names match case- and
+    space-insensitively (`client_key`). API: `/api/clients`, `/api/glossary-memory[/terms]`. Screen: "Glossaries"
+    (certified translators and admins).
+  - *Model settings:* admin changes are written to `<data>/settings/agents.json`, laid over `config/agents.json` by
+    `settings.load()` (re-read when the file changes). Model (must have a price), effort, prompt version (files in
+    `agents/prompts/<agent>/`), max tokens; QA rounds and documents in parallel. Screen: Admin → AI models.
+  - *Languages and pairs:* admin changes go to `<data>/settings/languages.json`, laid over
+    `profiles/data/*.json` (fonts, sizes, digits, quote marks, style guide, name rule, transliteration, scan notes;
+    pair rules, template, source-script rule). The log records which prompt-facing texts changed, never their text.
+    Screen: Admin → Languages (shows whether each PDF font is installed).
+  - Admin pages are grouped under one "Admin" menu entry with tabs. Pipeline stage files are written atomically.
 

@@ -42,6 +42,15 @@ class WebConfig:
                 kf.write_text(secrets.token_hex(32))
                 kf.chmod(0o600)
             self.secret_key = kf.read_text().strip()
+        from .. import profiles
+        from ..settings import set_override
+        set_override(self.settings_override)
+        profiles.set_override(self.data_dir / "settings" / "languages.json")
+
+    @property
+    def settings_override(self) -> Path:
+        """Model and pipeline settings changed by admins (overlays config/agents.json)."""
+        return self.data_dir / "settings" / "agents.json"
 
     @property
     def jobs_dir(self) -> Path:

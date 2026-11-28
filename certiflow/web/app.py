@@ -34,8 +34,8 @@ from . import runner
 from .auth import COOKIE, hash_password, make_token, read_token, verify_dummy, verify_password
 from .config import WebConfig, get_config, set_config
 from .db import Job as JobRow
-from .db import (ROLES, AdminEvent, JobDocument, JobEvent, LoginAttempt, User, UserSession, aware, revoke_sessions,
-                 session_factory, user_by_username, utcnow)
+from .db import (ROLES, AdminEvent, ClientTerm, JobDocument, JobEvent, LoginAttempt, User, UserSession, aware, revoke_sessions,
+                 client_key, session_factory, user_by_username, utcnow)
 
 SOURCE_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".docx", ".doc", ".odt", ".rtf"}
 CONVERT_EXT = {".docx", ".doc", ".odt", ".rtf"}
@@ -76,6 +76,18 @@ class AssetUpdateIn(BaseModel):
     active: Optional[bool] = None
     name: Optional[str] = None
     width_mm: Optional[float] = None
+
+
+class TermIn(BaseModel):
+    target: str
+    kind: str = "term"
+
+
+class AgentSettingsIn(BaseModel):
+    model: str
+    effort: str
+    prompt_version: str
+    max_tokens: int
 
 
 class PasswordIn(BaseModel):
@@ -465,6 +477,121 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
                 s.commit()
         return aa.asset_out(library(), asset)
 
+    # ------------------------------------------------------------------ admin: model settings
+
+    def _settings_error(e: Exception):
+        from . import settings_admin as sa
+        if isinstance(e, KeyError):
+            raise HTTPException(404, "no such agent")
+        if isinstance(e, sa.SettingsError):
+            raise HTTPException(422, str(e))
+        raise e
+
+    @app.get("/api/admin/settings")
+    def admin_settings(_: User = Depends(admin_user)):
+        from . import settings_admin as sa
+        return sa.view()
+
+    @app.put("/api/admin/settings/agents/{name}")
+    def admin_set_agent(name: str, body: AgentSettingsIn, a: User = Depends(admin_user), _=Depends(csrf)):
+        from . import settings_admin as sa
+        try:
+            changed = sa.set_agent(name, body.model, body.effort, body.prompt_version, body.max_tokens)
+        except Exception as e:  # noqa: BLE001
+            _settings_error(e)
+        if changed:
+            with Session() as s:
+                _log(s, a, "settings_changed", name, **changed)
+                s.commit()
+        return sa.view()
+
+    @app.delete("/api/admin/settings/agents/{name}")
+    def admin_reset_agent(name: str, a: User = Depends(admin_user), _=Depends(csrf)):
+        from . import settings_admin as sa
+        try:
+            sa.reset_agent(name)
+        except Exception as e:  # noqa: BLE001
+            _settings_error(e)
+        with Session() as s:
+            _log(s, a, "settings_reset", name)
+            s.commit()
+        return sa.view()
+
+    @app.put("/api/admin/settings/pipeline")
+    def admin_set_pipeline(body: dict[str, int], a: User = Depends(admin_user), _=Depends(csrf)):
+        from . import settings_admin as sa
+        try:
+            changed = sa.set_pipeline(body)
+        except Exception as e:  # noqa: BLE001
+            _settings_error(e)
+        if changed:
+            with Session() as s:
+                _log(s, a, "settings_changed", "pipeline", **changed)
+                s.commit()
+        return sa.view()
+
+    # ------------------------------------------------------------------ admin: languages and pairs
+
+    def _lang_error(e: Exception):
+        from . import languages_admin as la
+        if isinstance(e, KeyError):
+            raise HTTPException(404, "no such language")
+        if isinstance(e, (la.LanguageError, ValueError)):
+            raise HTTPException(422, str(e).splitlines()[0][:300])
+        raise e
+
+    def _templates() -> list[dict]:
+        return [{"id": a.id, "name": a.name, "language": a.language, "pair": a.pair}
+                for a in library().lib.assets if a.type == "template" and a.active]
+
+    @app.get("/api/admin/languages")
+    def admin_languages(_: User = Depends(admin_user)):
+        from . import languages_admin as la
+        return {**la.view(), "templates": _templates()}
+
+    @app.put("/api/admin/languages/{code}")
+    def admin_set_language(code: str, body: dict, a: User = Depends(admin_user), _=Depends(csrf)):
+        from . import languages_admin as la
+        try:
+            changed = la.set_profile(code, body)
+        except Exception as e:  # noqa: BLE001
+            _lang_error(e)
+        if changed:
+            with Session() as s:
+                _log(s, a, "language_changed", code, **changed)
+                s.commit()
+        return {**la.view(), "templates": _templates()}
+
+    @app.delete("/api/admin/languages/{code}")
+    def admin_reset_language(code: str, a: User = Depends(admin_user), _=Depends(csrf)):
+        from . import languages_admin as la
+        la.reset_profile(code)
+        with Session() as s:
+            _log(s, a, "language_reset", code)
+            s.commit()
+        return {**la.view(), "templates": _templates()}
+
+    @app.put("/api/admin/pairs/{source}/{target}")
+    def admin_set_pair(source: str, target: str, body: dict, a: User = Depends(admin_user), _=Depends(csrf)):
+        from . import languages_admin as la
+        try:
+            la.set_pair(source, target, body, {t["id"] for t in _templates()})
+        except Exception as e:  # noqa: BLE001
+            _lang_error(e)
+        with Session() as s:
+            _log(s, a, "pair_changed", f"{source}>{target}")
+            s.commit()
+        return {**la.view(), "templates": _templates()}
+
+    @app.delete("/api/admin/pairs/{source}/{target}")
+    def admin_reset_pair(source: str, target: str, a: User = Depends(admin_user), _=Depends(csrf)):
+        from . import languages_admin as la
+        la.reset_pair(source, target)
+        with Session() as s:
+            _log(s, a, "pair_reset", f"{source}>{target}")
+            s.commit()
+        return {**la.view(), "templates": _templates()}
+
     @app.get("/api/admin/usage")
     def admin_usage(days: int = 30, _: User = Depends(admin_user)):
         from .usage import summary
@@ -554,6 +681,7 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
         document_type: Optional[str] = Form(None),
         notes: Optional[str] = Form(None),
         overrides: Optional[str] = Form(None),
+        client: Optional[str] = Form(None),
         u: User = Depends(current_user), _=Depends(csrf),
     ):
         from ..pipeline.job import Job
@@ -614,10 +742,21 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
                        notes=notes)
         Job.create(jd, sources, source_language, target_language, spec, cfg.library, titles=titles,
                    languages=[(a, b) for a, b, _n in docs_meta])
+        client = " ".join((client or "").split())[:200] or None
+        if client:
+            # snapshot of the client's glossary memory; the pipeline picks the terms that occur in the batch
+            with Session() as s:
+                terms = s.scalars(select(ClientTerm).where(ClientTerm.client_key == client_key(client),
+                                                           ClientTerm.target_language.in_({b for _a, b, _n in docs_meta})))
+                mem = [{"source_language": t.source_language, "target_language": t.target_language, "source": t.source,
+                        "target": t.target, "kind": t.kind} for t in terms]
+            if mem:
+                (jd / "glossary.memory.json").write_text(json.dumps(mem, ensure_ascii=False, indent=1), "utf-8")
         with Session() as s:
             row = JobRow(id=job_id, created_by=u.id, title=titles[0] + (f" +{len(titles) - 1}" if len(titles) > 1 else ""),
                          source_language=source_language, target_language=target_language, stamp=stamp,
-                         page_order=page_order, document_type=document_type, notes=notes, status="queued")
+                         page_order=page_order, document_type=document_type, notes=notes, status="queued",
+                         client=client)
             for i, (a, b, n) in enumerate(docs_meta):
                 row.documents.append(JobDocument(idx=i, doc_key=f"d{i + 1:02d}", title=titles[i], filename=n,
                                                  source_language=a, target_language=b))
@@ -696,9 +835,14 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
         with Session() as s:
             _job_for(s, job_id, u)
         jd = runner.job_dir(cfg, job_id)
+        mem = jd / "glossary.memory.json"
+        remembered = {(m["source"], m["target"]) for m in json.loads(mem.read_text("utf-8"))} if mem.exists() else set()
         for name in ("glossary.json", "glossary.proposed.json"):
             if (jd / name).exists():
-                return {"confirmed": name == "glossary.json", "items": json.loads((jd / name).read_text("utf-8"))}
+                items = json.loads((jd / name).read_text("utf-8"))
+                for i in items:
+                    i["remembered"] = (i.get("source"), i.get("target")) in remembered
+                return {"confirmed": name == "glossary.json", "items": items}
         return {"confirmed": False, "items": []}
 
 
@@ -715,7 +859,109 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
         items = [{"source": i.source.strip(), "target": i.target.strip(),
                   "kind": i.kind if i.kind in ("name", "acronym", "term", "organisation", "place") else "term",
                   "confirmed": True} for i in body.items if i.source.strip() and i.target.strip()]
+        _remember_terms(job_id, items, u.username)
         runner.submit(job_id, {"by": u.username, "glossary": items})
+        return {"ok": True}
+
+    def _remember_terms(job_id: str, items: list[dict], by: str) -> None:
+        """Save a confirmed glossary in the client's memory (newest confirmation wins)."""
+        with Session() as s:
+            row = s.get(JobRow, job_id)
+            if not row or not row.client or not items:
+                return
+            src = row.source_language
+            intake = runner.job_dir(cfg, job_id) / "docs" / "d01.intake.json"
+            if intake.exists():                           # the language Intake detected (the job may say "auto")
+                src = json.loads(intake.read_text("utf-8")).get("source_language", src)
+            if src == "auto":
+                return
+            key, tgt = client_key(row.client), row.target_language
+            have = {t.source: t for t in s.scalars(select(ClientTerm).where(
+                ClientTerm.client_key == key, ClientTerm.source_language == src, ClientTerm.target_language == tgt))}
+            for i in items:
+                source, target = i["source"][:500], i["target"][:500]
+                t = have.get(source)
+                if t is None:
+                    t = ClientTerm(client_key=key, client=row.client, source_language=src, target_language=tgt,
+                                   source=source, target=target, kind=i["kind"], updated_by=by, job_id=job_id, uses=1)
+                    s.add(t)
+                    have[source] = t
+                else:
+                    t.uses += 1
+                    if (t.target, t.kind) != (target, i["kind"]):
+                        t.target, t.kind = target, i["kind"]
+                    t.client, t.updated_at, t.updated_by, t.job_id = row.client, utcnow(), by, job_id
+            s.commit()
+
+    # ------------------------------------------------------------------ glossary memory per client
+
+    def translator_or_admin(u: User = Depends(current_user)) -> User:
+        if u.role not in ("admin", "certified_translator"):
+            raise HTTPException(403, "certified translators and admins only")
+        return u
+
+    @app.get("/api/clients")
+    def clients(u: User = Depends(current_user)):
+        """Client names for the New job suggestions: from the glossary memory and the user's own jobs."""
+        by_key: dict[str, str] = {}
+        with Session() as s:       # one spelling per client: the one used most recently
+            q = select(JobRow.client).where(JobRow.client.is_not(None)).order_by(JobRow.created_at.desc())
+            if u.role != "admin":
+                q = q.where(JobRow.created_by == u.id)
+            for n in s.scalars(q.limit(5000)):
+                by_key.setdefault(client_key(n), n)
+            for n in s.scalars(select(ClientTerm.client).order_by(ClientTerm.updated_at.desc())):
+                by_key.setdefault(client_key(n), n)
+        return sorted(by_key.values(), key=str.casefold)
+
+    @app.get("/api/glossary-memory")
+    def memory_overview(_: User = Depends(translator_or_admin)):
+        with Session() as s:
+            rows = s.execute(select(ClientTerm.client_key, ClientTerm.source_language, ClientTerm.target_language,
+                                    func.count(), func.max(ClientTerm.updated_at), func.max(ClientTerm.client))
+                             .group_by(ClientTerm.client_key, ClientTerm.source_language, ClientTerm.target_language)).all()
+        out: dict[str, dict] = {}
+        for key, a, b, n, last, name in rows:
+            c = out.setdefault(key, {"client": name, "terms": 0, "pairs": [], "updated_at": None})
+            c["terms"] += n
+            c["pairs"].append({"source": a, "target": b, "terms": n})
+            c["updated_at"] = max(filter(None, [c["updated_at"], _iso(last)]))
+        return sorted(out.values(), key=lambda c: c["client"].casefold())
+
+    @app.get("/api/glossary-memory/terms")
+    def memory_terms(client: str, source: Optional[str] = None, target: Optional[str] = None,
+                     _: User = Depends(translator_or_admin)):
+        with Session() as s:
+            q = select(ClientTerm).where(ClientTerm.client_key == client_key(client))
+            if source:
+                q = q.where(ClientTerm.source_language == source)
+            if target:
+                q = q.where(ClientTerm.target_language == target)
+            return [_term_out(t) for t in s.scalars(q.order_by(ClientTerm.source))]
+
+    @app.put("/api/glossary-memory/terms/{term_id}")
+    def memory_update(term_id: int, body: TermIn, u: User = Depends(translator_or_admin), _=Depends(csrf)):
+        target = body.target.strip()[:500]
+        if not target:
+            raise HTTPException(422, "the translation cannot be empty")
+        if body.kind not in ("name", "acronym", "term", "organisation", "place"):
+            raise HTTPException(422, "unknown kind")
+        with Session() as s:
+            t = s.get(ClientTerm, term_id)
+            if t is None:
+                raise HTTPException(404, "no such term")
+            t.target, t.kind, t.updated_at, t.updated_by = target, body.kind, utcnow(), u.username
+            s.commit()
+            return _term_out(t)
+
+    @app.delete("/api/glossary-memory/terms/{term_id}")
+    def memory_delete(term_id: int, _: User = Depends(translator_or_admin), __=Depends(csrf)):
+        with Session() as s:
+            t = s.get(ClientTerm, term_id)
+            if t is None:
+                raise HTTPException(404, "no such term")
+            s.delete(t)
+            s.commit()
         return {"ok": True}
 
     @app.get("/api/jobs/{job_id}/documents/{doc_key}")
@@ -980,10 +1226,17 @@ def _may_see(row: JobRow, u: User) -> bool:
     return u.role == "admin" or row.created_by == u.id or row.approved_by == u.id
 
 
+def _term_out(t: ClientTerm) -> dict:
+    return {"id": t.id, "client": t.client, "source_language": t.source_language, "target_language": t.target_language,
+            "source": t.source, "target": t.target, "kind": t.kind, "updated_at": _iso(t.updated_at),
+            "updated_by": t.updated_by, "job_id": t.job_id, "uses": t.uses}
+
+
 def _job_out(r: JobRow, brief: bool = False) -> dict:
     out = {"id": r.id, "title": r.title, "created_at": r.created_at.isoformat(), "status": r.status,
            "stage": r.stage, "source_language": r.source_language, "target_language": r.target_language,
-           "stamp": r.stamp, "cost_usd": r.cost_usd, "error": r.error, "documents_count": len(r.documents)}
+           "stamp": r.stamp, "cost_usd": r.cost_usd, "error": r.error, "documents_count": len(r.documents),
+           "client": r.client}
     if not brief:
         out.update(page_order=r.page_order, document_type=r.document_type, notes=r.notes,
                    approved_at=r.approved_at.isoformat() if r.approved_at else None,

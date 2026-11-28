@@ -8,10 +8,13 @@ export interface JobDoc { key: string; title: string; filename: string; source_l
 export interface JobFile { name: string; size: number; kind: string }
 export interface Job { id: string; title: string; created_at: string; status: string; stage: string;
   source_language: string; target_language: string; stamp: string; cost_usd: number; error: string | null;
-  documents_count: number; documents?: JobDoc[]; files?: JobFile[]; approved_at?: string | null;
+  documents_count: number; client?: string | null; documents?: JobDoc[]; files?: JobFile[]; approved_at?: string | null;
   page_order?: string; document_type?: string | null; notes?: string | null;
   cost_by_agent?: Record<string, { calls: number; cost_usd: number; input_tokens: number; output_tokens: number }> }
-export interface GlossaryItem { source: string; target: string; kind: string; confirmed?: boolean }
+export interface GlossaryItem { source: string; target: string; kind: string; confirmed?: boolean; remembered?: boolean }
+export interface MemoryClient { client: string; terms: number; updated_at: string | null; pairs: { source: string; target: string; terms: number }[] }
+export interface MemoryTerm { id: number; client: string; source_language: string; target_language: string; source: string; target: string;
+  kind: string; updated_at: string; updated_by: string; job_id: string | null; uses: number }
 
 export interface AdminUser extends User { active: boolean; created_at: string; last_login_at: string | null;
   devices: number; locked: boolean; certified_stamp: boolean }
@@ -22,6 +25,17 @@ export interface AssetInfo { id: string; name: string; type: AssetType; active: 
   file: string; size: number | null; seal_from_template: boolean; source_layout: boolean; margins_mm?: Record<string, number> | null }
 export interface AssetListing { company: string; editable: boolean; assets: AssetInfo[];
   users: { id: string; name: string; role: string }[]; accounts: { username: string; name: string; role: string }[] }
+export interface AgentConf { model: string; effort: string; max_tokens: number; prompt_version: string }
+export interface ModelSettings { agents: Record<string, AgentConf & { default: AgentConf; overridden: string[]; prompt_versions: string[] }>;
+  efforts: string[]; models: { model: string; input: number; output: number; cache_read: number; cache_write: number }[];
+  pipeline: Record<string, number>; pipeline_default: Record<string, number>; pipeline_overridden: string[] }
+export interface LangAdmin { code: string; display_name: string; native_name: string; direction: "ltr" | "rtl"; script: string;
+  ocr_pack: string; values: Record<string, unknown>; default: Record<string, unknown>; overridden: string[];
+  pdf_font_installed: boolean; fallback_installed: boolean }
+export interface PairAdmin { source: string; target: string; template_id: string | null; conventions: string;
+  no_foreign_script: boolean | null; transliteration_standard: string | null; in_defaults: boolean; overridden: boolean }
+export interface LanguageAdmin { languages: LangAdmin[]; pairs: PairAdmin[]; editable: string[]; text_fields: string[];
+  templates: { id: string; name: string; language: string | null; pair: string | null }[] }
 export interface UsageAgent { agent: string; calls: number; cost_usd: number; input_tokens: number; output_tokens: number; cache_read_tokens: number }
 export interface Usage { days: number; timezone: string; from: string; to: string;
   tiles: { today: number; week: number; month: number };
@@ -72,6 +86,16 @@ export const api = {
   adminUpdateAsset: (id: string, body: { active?: boolean; name?: string; width_mm?: number }) =>
     req<AssetInfo>("PATCH", `/api/admin/assets/${encodeURIComponent(id)}`, body),
   assetFile: (id: string) => `/api/admin/assets/${encodeURIComponent(id)}/file`,
+  adminSettings: () => req<ModelSettings>("GET", "/api/admin/settings"),
+  adminSetAgent: (name: string, body: { model: string; effort: string; prompt_version: string; max_tokens: number }) =>
+    req<ModelSettings>("PUT", `/api/admin/settings/agents/${name}`, body),
+  adminResetAgent: (name: string) => req<ModelSettings>("DELETE", `/api/admin/settings/agents/${name}`),
+  adminSetPipeline: (body: Record<string, number>) => req<ModelSettings>("PUT", "/api/admin/settings/pipeline", body),
+  adminLanguages: () => req<LanguageAdmin>("GET", "/api/admin/languages"),
+  adminSetLanguage: (code: string, body: Record<string, unknown>) => req<LanguageAdmin>("PUT", `/api/admin/languages/${code}`, body),
+  adminResetLanguage: (code: string) => req<LanguageAdmin>("DELETE", `/api/admin/languages/${code}`),
+  adminSetPair: (s: string, tg: string, body: Record<string, unknown>) => req<LanguageAdmin>("PUT", `/api/admin/pairs/${s}/${tg}`, body),
+  adminResetPair: (s: string, tg: string) => req<LanguageAdmin>("DELETE", `/api/admin/pairs/${s}/${tg}`),
   adminUsage: (days: number) => req<Usage>("GET", `/api/admin/usage?days=${days}`),
   adminEvents: () => req<AdminEvent[]>("GET", "/api/admin/events"),
   sessions: () => req<SessionInfo[]>("GET", "/api/me/sessions"),
@@ -84,6 +108,12 @@ export const api = {
   job: (id: string) => req<Job>("GET", `/api/jobs/${id}`),
   createJob: (fd: FormData) => req<{ id: string }>("POST", "/api/jobs", fd),
   glossary: (id: string) => req<{ confirmed: boolean; items: GlossaryItem[] }>("GET", `/api/jobs/${id}/glossary`),
+  clients: () => req<string[]>("GET", "/api/clients"),
+  memory: () => req<MemoryClient[]>("GET", "/api/glossary-memory"),
+  memoryTerms: (client: string, source?: string, target?: string) =>
+    req<MemoryTerm[]>("GET", `/api/glossary-memory/terms?${new URLSearchParams({ client, ...(source ? { source } : {}), ...(target ? { target } : {}) })}`),
+  memoryUpdate: (id: number, target: string, kind: string) => req<MemoryTerm>("PUT", `/api/glossary-memory/terms/${id}`, { target, kind }),
+  memoryDelete: (id: number) => req<{ ok: boolean }>("DELETE", `/api/glossary-memory/terms/${id}`),
   confirmGlossary: (id: string, items: GlossaryItem[]) => req("POST", `/api/jobs/${id}/glossary/confirm`, { items }),
   documentModel: (id: string, key: string) => req<{ stage: string; model: DocModel }>("GET", `/api/jobs/${id}/documents/${key}`),
   approve: (id: string, note?: string) => req("POST", `/api/jobs/${id}/approve`, { note }),

@@ -65,6 +65,7 @@ Legend: ✅ done and tested · 🟡 partial / different from brief (see notes) �
 | 3 | QA loop max 2, then flag for human | ✅ | Unresolved blockers block the release |
 | 3 | Chunking with overlap, shared glossary | ✅ | Units of at most 40 blocks or 20 pages, 3 blocks of context, recombined into one document (§5.5) |
 | 3 | Glossary confirmed once per batch | ✅ | One glossary per job; per-pair glossaries in mixed batches are open |
+| 3 | Glossary memory per client | ✅ | Phase 5: confirmed terms reused in the client's next jobs |
 | 3.1 | LangGraph with conditional loop + interrupt + Postgres checkpointer | 🟡 | Graph + interrupts + Postgres/SQLite checkpointer ✅. The QA loop and per-document parallelism run inside the `process_all` node (code-level loop, thread pool), not as graph edges |
 | 3.1 | Anthropic SDK, structured outputs, validation retry | ✅ | JSON outputs (`output_config.format`), not forced tool use (forced `tool_choice` is rejected by current models) |
 | 3.1 | Claude Agent SDK for hard scans | 🟡 | Replaced by a plain "zoom" Messages call on cropped regions (lighter in Celery workers) |
@@ -77,7 +78,7 @@ Legend: ✅ done and tested · 🟡 partial / different from brief (see notes) �
 | 3.1 | Mock client for offline tests | ✅ | `MockClient`, `RecordingClient`, deterministic agent stand-ins |
 | 4 | Language-neutral document model with runs | ✅ | Pydantic; JSON Schema in `docs/document.schema.json` |
 | 5 | Translation/formatting rules | ✅ | In prompts (`common_rules.v1.md`) and the Builder |
-| 5.1 | Language Profiles editable by admins | 🟡 | JSON files; DB + admin UI is Phase 5 |
+| 5.1 | Language Profiles editable by admins | ✅ | Admin screen (Phase 5): overlay file on the profile JSON; new languages still need font + OCR pack |
 | 5.1 | Arabic Sakkal Majalla 14 pt | 🟡 | **13 pt**: matched to the office's approved translations |
 | 5.2 | Pair Settings | ✅ | `profiles/data/pairs.json` |
 | 6 | Builder: RTL, bidi isolation, fonts, proofing language, templates per pair | ✅ | |

@@ -56,6 +56,7 @@ export default function JobView() {
         <div className="mt-1 flex flex-wrap gap-4 text-sm text-slate-600">
           <LangPair s={job.source_language} t={job.target_language} />
           <span>{job.stamp === "certified" ? t("certified") : t("officeStamp")}</span>
+          {job.client && <span>{t("client")}: <bdi>{job.client}</bdi></span>}
           {job.document_type && <span dir="auto">{job.document_type}</span>}
           <span className="font-mono text-xs" dir="ltr">${job.cost_usd.toFixed(2)}</span>
         </div>
@@ -151,11 +152,14 @@ function GlossaryPanel({ jobId, onDone }: { jobId: string; onDone: () => void })
           <thead className="text-xs uppercase text-slate-500"><tr><th className="py-1 text-start">{t("source")}</th><th className="py-1 text-start">{t("target")}</th><th className="py-1 text-start">{t("kind")}</th><th /></tr></thead>
           <tbody>
             {items.map((r, i) => (
-              <tr key={i}>
+              <tr key={i} className="align-top">
                 <td className="py-1 pe-2"><input className="input" dir="auto" value={r.source} onChange={(e) => set(i, "source", e.target.value)} /></td>
-                <td className="py-1 pe-2"><input className="input" dir="auto" value={r.target} onChange={(e) => set(i, "target", e.target.value)} /></td>
+                <td className="py-1 pe-2">
+                  <input className="input" dir="auto" value={r.target} onChange={(e) => set(i, "target", e.target.value)} />
+                  {r.remembered && <span className="mt-0.5 block text-xs text-green-700">✓ {t("fromMemory")}</span>}
+                </td>
                 <td className="py-1 pe-2"><select className="input" value={r.kind} onChange={(e) => set(i, "kind", e.target.value)}>{["name", "organisation", "place", "acronym", "term"].map((k) => <option key={k}>{k}</option>)}</select></td>
-                <td className="py-1"><button className="text-xs text-red-600 hover:underline" onClick={() => setItems((x) => x!.filter((_, j) => j !== i))}>{t("remove")}</button></td>
+                <td className="py-1 pt-3"><button className="text-xs text-red-600 hover:underline" onClick={() => setItems((x) => x!.filter((_, j) => j !== i))}>{t("remove")}</button></td>
               </tr>
             ))}
           </tbody>

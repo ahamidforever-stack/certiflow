@@ -58,9 +58,48 @@ class Settings(BaseModel):
                 + usage.get("cache_creation_input_tokens", 0) * p.cache_write) / 1e6
 
 
-@lru_cache
-def load(path: str | None = None) -> Settings:
+_override: Optional[Path] = None
+
+
+def set_override(path: Optional[Path]) -> None:
+    """Admin changes from the web app live in a separate file (data/settings/agents.json) that overlays the
+    defaults in config/agents.json, so the git-tracked file is never written by the app."""
+    global _override
+    _override = Path(path) if path else None
+
+
+def override_path() -> Optional[Path]:
+    return _override
+
+
+def read_override() -> dict:
+    p = _override
+    if p is None or not p.exists():
+        return {}
+    return json.loads(p.read_text("utf-8"))
+
+
+def defaults(path: str | None = None) -> dict:
     p = Path(path or os.environ.get("CERTIFLOW_SETTINGS") or DEFAULT_PATH)
     data = json.loads(p.read_text("utf-8"))
     data.pop("_comment", None)
+    return data
+
+
+def load(path: str | None = None) -> Settings:
+    p = str(Path(path or os.environ.get("CERTIFLOW_SETTINGS") or DEFAULT_PATH))
+    ov = _override
+    stamp = ov.stat().st_mtime_ns if ov is not None and ov.exists() else 0
+    return _load(p, str(ov) if stamp else "", stamp)
+
+
+@lru_cache(maxsize=8)
+def _load(path: str, override: str, _mtime: int) -> Settings:
+    data = defaults(path)
+    if override:
+        ov = json.loads(Path(override).read_text("utf-8"))
+        for name, fields in (ov.get("agents") or {}).items():
+            if name in data["agents"]:
+                data["agents"][name] = {**data["agents"][name], **fields}
+        data["pipeline"] = {**data.get("pipeline", {}), **(ov.get("pipeline") or {})}
     return Settings.model_validate(data)

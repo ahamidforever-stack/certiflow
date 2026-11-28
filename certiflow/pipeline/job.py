@@ -49,6 +49,13 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _write(path: Path, text: str, encoding: str = "utf-8") -> None:
+    """Write a stage file atomically: readers (status, review API) never see a half-written file."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding)
+    tmp.replace(path)
+
+
 class Job:
     """A translation job on disk: job.json (spec + documents), docs/*, glossary.json, audit.jsonl."""
 
@@ -74,7 +81,7 @@ class Job:
             docs.append({"id": f"d{i + 1:02d}", "source": str(Path(s).resolve()),
                          "title": (titles[i] if titles else Path(s).stem.replace("_", " ")),
                          "source_language": src, "target_language": tgt})
-        (job_dir / "job.json").write_text(json.dumps({
+        _write((job_dir / "job.json"), json.dumps({
             "created": _now(), "spec": spec.model_dump(mode="json"), "library": str(Path(library).resolve()),
             "documents": docs}, indent=2, ensure_ascii=False), "utf-8")
         (job_dir / "docs").mkdir(exist_ok=True)
@@ -86,7 +93,7 @@ class Job:
         return self.dir / "docs" / f"{doc_id}.{stage}.json"
 
     def save_doc(self, doc: Document, stage: str) -> None:
-        self.doc_path(doc.id, stage).write_text(doc.model_dump_json(indent=1, exclude_defaults=True), "utf-8")
+        _write(self.doc_path(doc.id, stage), doc.model_dump_json(indent=1, exclude_defaults=True), "utf-8")
 
     def load_doc(self, doc_id: str, stage: str) -> Optional[Document]:
         p = self.doc_path(doc_id, stage)
@@ -95,6 +102,30 @@ class Job:
     def glossary(self) -> list[GlossaryEntry]:
         p = self.dir / "glossary.json"
         return [GlossaryEntry.model_validate(g) for g in json.loads(p.read_text("utf-8"))] if p.exists() else []
+
+    def remembered_terms(self, src: str, tgt: str, docs: list[Document]) -> list[GlossaryEntry]:
+        """Client glossary memory (``glossary.memory.json``, written when the job was created): the terms for this
+        language pair whose source text occurs in the batch, pre-confirmed. The glossary agent adds only new ones."""
+        p = self.dir / "glossary.memory.json"
+        if not p.exists():
+            return []
+        texts = []
+        for d in docs:
+            for b in d.blocks:
+                texts.append(b.source_text)
+                texts += [c.source_text for r in b.rows for c in r.cells]
+        corpus = "\n".join(texts).casefold()
+        out, seen = [], set()
+        for m in json.loads(p.read_text("utf-8")):
+            if (m.get("source_language"), m.get("target_language")) != (src, tgt) or m["source"] in seen:
+                continue
+            if m["source"].casefold() in corpus:
+                seen.add(m["source"])
+                out.append(GlossaryEntry(source=m["source"], target=m["target"], kind=m.get("kind", "term"),
+                                         confirmed=True))
+        if out:
+            self.event("glossary_memory", items=len(out))
+        return out
 
     def ctx(self, src: str, tgt: str, doc_id: str = "") -> AgentContext:
         pair = resolve_pair(src if src != "auto" else "en", tgt)
@@ -122,8 +153,9 @@ class Job:
             docs = [self.load_doc(d["id"], "intake") for d in self.meta["documents"]]
             d0 = docs[0]
             ctx = self.ctx(d0.source_language, d0.target_language)
+            ctx.glossary = self.remembered_terms(d0.source_language, d0.target_language, docs)
             proposed = steps.glossary(ctx, docs)
-            (self.dir / "glossary.proposed.json").write_text(
+            _write((self.dir / "glossary.proposed.json"), 
                 json.dumps([g.model_dump() for g in proposed], indent=1, ensure_ascii=False), "utf-8")
         return {"stage": "glossary_proposed"}
 
@@ -135,7 +167,7 @@ class Job:
             items = answer.get("glossary") if isinstance(answer, dict) and answer.get("glossary") is not None else proposed
             for g in items:
                 g["confirmed"] = True
-            (self.dir / "glossary.json").write_text(json.dumps(items, indent=1, ensure_ascii=False), "utf-8")
+            _write((self.dir / "glossary.json"), json.dumps(items, indent=1, ensure_ascii=False), "utf-8")
             self.event("glossary_confirmed", by=(answer or {}).get("by") if isinstance(answer, dict) else None,
                        items=len(items))
         return {"stage": "glossary_confirmed"}
@@ -183,7 +215,7 @@ class Job:
             if b.id in open_blockers:
                 b.status = BlockStatus.needs_review
         self.save_doc(doc, "qa")
-        (self.dir / "docs" / f"{doc_id}.qa_report.json").write_text(
+        _write((self.dir / "docs" / f"{doc_id}.qa_report.json"), 
             json.dumps([i.model_dump() for i in issues], indent=1, ensure_ascii=False), "utf-8")
         steps.format_document(ctx, doc)
         self.save_doc(doc, "formatted")
@@ -196,7 +228,7 @@ class Job:
         if not isinstance(answer, dict) or not answer.get("approved_by"):
             raise ReleaseBlocked("release needs an approval by a certified translator")
         self.event("approved", by=answer["approved_by"], note=answer.get("note"))
-        (self.dir / "approval.json").write_text(json.dumps({"approved_by": answer["approved_by"], "at": _now()}), "utf-8")
+        _write((self.dir / "approval.json"), json.dumps({"approved_by": answer["approved_by"], "at": _now()}), "utf-8")
         return {"stage": "approved"}
 
     def n_release(self, state: JobState) -> dict:

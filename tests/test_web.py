@@ -710,3 +710,128 @@ def test_new_template_is_used_for_the_next_release(web_lib, src_pdf, tmp_path):
     lib = AssetLibrary(cfg.library)
     assert lib.template_for("ar", "en").id == r.json()["id"]
     assert a.get(f"/api/admin/assets/{r.json()['id']}/file").content[:2] == b"PK"
+
+
+# ------------------------------------------------------------------ Phase 5: glossary memory per client
+
+
+def _job_for_client(c, src_pdf, client_name):
+    r = c.post("/api/jobs", data={"source_language": "en", "target_language": "ar", "stamp": "certified",
+                                  "client": client_name},
+               files={"files": ("certificate.pdf", src_pdf.read_bytes(), "application/pdf")}, headers=H)
+    assert r.status_code == 201, r.text
+    jid = r.json()["id"]
+    wait_status(c, jid, {"waiting_glossary"})
+    return jid
+
+
+def test_glossary_memory_is_reused_for_the_same_client(web, src_pdf):
+    _, app = web
+    c = client(app, "translator1")
+    j1 = _job_for_client(c, src_pdf, "Acme  Corp")
+    proposed = c.get(f"/api/jobs/{j1}/glossary").json()["items"]
+    assert not any(i["remembered"] for i in proposed)               # the mock proposes nothing: add terms by hand
+    model = c.get(f"/api/jobs/{j1}/documents/d01").json()["model"]
+    word = next(w for b in model["blocks"] for w in (b.get("source_text") or "").split() if len(w) > 5 and w.isalpha())
+    first = {"source": word, "target": "ترجمة المكتب", "kind": "term"}
+    items = [first, {"source": "not in the document", "target": "x", "kind": "term"}]
+    assert c.post(f"/api/jobs/{j1}/glossary/confirm", json={"items": items}, headers=H).status_code == 200
+    assert c.get(f"/api/jobs/{j1}").json()["client"] == "Acme Corp"
+
+    # the same client, typed differently: remembered terms that occur in the document come back confirmed
+    j2 = _job_for_client(c, src_pdf, " acme corp ")
+    g2 = {i["source"]: i for i in c.get(f"/api/jobs/{j2}/glossary").json()["items"]}
+    assert g2[first["source"]]["target"] == "ترجمة المكتب" and g2[first["source"]]["remembered"] is True
+    assert g2[first["source"]]["confirmed"] is True
+    assert "not in the document" not in g2                         # only terms that occur in this batch
+    # another client starts empty
+    j3 = _job_for_client(c, src_pdf, "Other Client")
+    assert not any(i["remembered"] for i in c.get(f"/api/jobs/{j3}/glossary").json()["items"])
+
+    # the memory screen: overview, edit, delete; reviewers have no access
+    assert client(app, "reviewer1").get("/api/glossary-memory").status_code == 403
+    ov = c.get("/api/glossary-memory").json()
+    acme = next(x for x in ov if x["client"] == "Acme Corp")
+    assert acme["pairs"] == [{"source": "en", "target": "ar", "terms": len(items)}]
+    terms = c.get("/api/glossary-memory/terms", params={"client": "ACME CORP"}).json()
+    t = next(x for x in terms if x["source"] == first["source"])
+    assert t["uses"] == 1 and t["job_id"] == j1
+    r = c.put(f"/api/glossary-memory/terms/{t['id']}", json={"target": "تصحيح", "kind": "name"}, headers=H)
+    assert r.json()["target"] == "تصحيح" and r.json()["kind"] == "name"
+    assert c.put(f"/api/glossary-memory/terms/{t['id']}", json={"target": " "}, headers=H).status_code == 422
+    junk = next(x for x in terms if x["source"] == "not in the document")
+    assert c.delete(f"/api/glossary-memory/terms/{junk['id']}", headers=H).json() == {"ok": True}
+    names = c.get("/api/clients").json()
+    assert names == ["acme corp", "Other Client"]              # one entry per client, latest spelling
+
+
+# ------------------------------------------------------------------ Phase 5: model settings
+
+
+def test_model_settings_overlay_the_defaults(web):
+    from certiflow.settings import DEFAULT_PATH, load
+    cfg, app = web
+    before = DEFAULT_PATH.read_bytes()
+    assert client(app, "translator1").get("/api/admin/settings").status_code == 403
+    a = client(app, "admin")
+    v = a.get("/api/admin/settings").json()
+    tr = v["agents"]["translator"]
+    assert tr["overridden"] == [] and "v1" in tr["prompt_versions"] and "v2" in v["agents"]["intake"]["prompt_versions"]
+    other = next(m["model"] for m in v["models"] if m["model"] != tr["model"])
+    body = {"model": other, "effort": "medium", "prompt_version": "v1", "max_tokens": tr["max_tokens"]}
+    v = a.put("/api/admin/settings/agents/translator", json=body, headers=H).json()
+    assert v["agents"]["translator"]["model"] == other and v["agents"]["translator"]["overridden"] == ["effort", "model"]
+    assert load().agent("translator").model == other                 # new pipeline steps use it at once
+    assert DEFAULT_PATH.read_bytes() == before                         # the git-tracked defaults are untouched
+    assert cfg.settings_override.exists()
+    for bad in ({**body, "model": "gpt-4"}, {**body, "effort": "huge"}, {**body, "prompt_version": "v9"},
+                {**body, "max_tokens": 10}):
+        assert a.put("/api/admin/settings/agents/translator", json=bad, headers=H).status_code == 422
+    assert a.put("/api/admin/settings/agents/nobody", json=body, headers=H).status_code == 404
+    v = a.put("/api/admin/settings/pipeline", json={"qa_max_loops": 1}, headers=H).json()
+    assert v["pipeline"]["qa_max_loops"] == 1 and load().pipeline.qa_max_loops == 1
+    assert a.put("/api/admin/settings/pipeline", json={"ocr_dpi": 72}, headers=H).status_code == 422
+    v = a.delete("/api/admin/settings/agents/translator", headers=H).json()
+    assert v["agents"]["translator"]["model"] == tr["model"] and v["agents"]["translator"]["overridden"] == []
+    a.put("/api/admin/settings/pipeline", json={"qa_max_loops": v["pipeline_default"]["qa_max_loops"]}, headers=H)
+    assert load().pipeline.qa_max_loops == v["pipeline_default"]["qa_max_loops"]
+    actions = [e["action"] for e in a.get("/api/admin/events").json()]
+    assert actions.count("settings_changed") == 3 and "settings_reset" in actions
+
+
+# ------------------------------------------------------------------ Phase 5: languages and pairs
+
+
+def test_language_and_pair_settings_overlay_the_profiles(web):
+    from certiflow.profiles import DATA_DIR, get_profile, resolve_pair
+    cfg, app = web
+    before = (DATA_DIR / "ar.json").read_bytes(), (DATA_DIR / "pairs.json").read_bytes()
+    assert client(app, "translator1").get("/api/admin/languages").status_code == 403
+    a = client(app, "admin")
+    v = a.get("/api/admin/languages").json()
+    ar = next(x for x in v["languages"] if x["code"] == "ar")
+    assert ar["overridden"] == [] and "body_size_pt" in ar["values"]
+    r = a.put("/api/admin/languages/ar", json={"body_size_pt": 14, "style_guide": ar["values"]["style_guide"] + " X."},
+              headers=H)
+    assert r.status_code == 200, r.text
+    assert get_profile("ar").body_size_pt == 14 and get_profile("ar").style_guide.endswith(" X.")
+    for bad in ({"body_size_pt": 50}, {"code": "xx"}, {"direction": "ltr"}, {"quote_marks": ["«"]}, {"word_font": " "}):
+        assert a.put("/api/admin/languages/ar", json=bad, headers=H).status_code == 422, bad
+    assert a.put("/api/admin/languages/zz", json={"body_size_pt": 12}, headers=H).status_code == 404
+    ev = a.get("/api/admin/events").json()[0]
+    assert ev["action"] == "language_changed" and ev["data"]["style_guide"] == "changed"   # no prompt text in the log
+    # pairs: change a default pair, add a new one, reset both
+    tpl = v["templates"][0]["id"]
+    assert a.put("/api/admin/pairs/en/ar", json={"conventions": "Passport spelling.", "template_id": tpl},
+                 headers=H).status_code == 200
+    assert resolve_pair("en", "ar").conventions == "Passport spelling." and resolve_pair("en", "ar").template_id == tpl
+    assert a.put("/api/admin/pairs/fr/ar", json={"conventions": "Noms selon le passeport."}, headers=H).status_code == 200
+    assert resolve_pair("fr", "ar").conventions == "Noms selon le passeport."
+    assert a.put("/api/admin/pairs/en/ar", json={"template_id": "nope"}, headers=H).status_code == 422
+    assert a.put("/api/admin/pairs/en/en", json={}, headers=H).status_code == 422
+    a.delete("/api/admin/pairs/fr/ar", headers=H)
+    a.delete("/api/admin/pairs/en/ar", headers=H)
+    a.delete("/api/admin/languages/ar", headers=H)
+    assert resolve_pair("fr", "ar").conventions == "" and get_profile("ar").body_size_pt == 13
+    assert resolve_pair("en", "ar").conventions.startswith("Follow passport")
+    assert ((DATA_DIR / "ar.json").read_bytes(), (DATA_DIR / "pairs.json").read_bytes()) == before
