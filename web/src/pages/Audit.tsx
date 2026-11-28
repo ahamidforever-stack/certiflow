@@ -24,7 +24,7 @@ function withSteps(recs: AuditRecord[]) {
       else if (r.status === "releasing" || r.status === "released") step = 6;
     } else if (r.kind === "approved" || r.kind === "released") step = 6;
     else if (r.kind === "glossary_confirmed" || r.kind === "glossary_memory") step = 1;
-    else if (["review_edit", "review_change", "review_flag", "rerun_started", "rerun_done", "preview_built"].includes(r.kind)) { step = 5; reviewing = true; }
+    else if (["review_edit", "review_change", "review_flag", "rerun_started", "rerun_done", "preview_built", "assist"].includes(r.kind)) { step = 5; reviewing = true; }
     else if (!reviewing && (r.kind === "llm_call" || r.kind === "llm_error") && r.agent && AGENT_STEP[r.agent] != null) step = AGENT_STEP[r.agent];
     else if (!reviewing && r.kind === "stage_done" && r.stage && STAGE_STEP[r.stage] != null) step = STAGE_STEP[r.stage];
     else if (!reviewing && r.kind === "qa_loop") step = 4;

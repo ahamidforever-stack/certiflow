@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, type StorageSettings, type StorageView } from "../api";
 import { StatusChip } from "../components/Status";
 import { useI18n } from "../i18n";
+import { Sym } from "../components/Sym";
 
 // Admin: automatic deletion of old job files (off until switched on), backups and their encryption status.
 
@@ -42,7 +43,7 @@ export default function Storage() {
   };
   if (!v || !f) return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-slate-900">{t("stTitle")}</h1>
+      <h1 className="font-serif text-xl font-medium text-slate-900">{t("stTitle")}</h1>
       {err ? <div role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{err} <button className="ms-2 underline" onClick={load}>{t("retry")}</button></div>
         : <div className="card p-5 text-sm text-slate-500">…</div>}
     </div>
@@ -66,7 +67,7 @@ export default function Storage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-slate-900">{t("stTitle")}</h1>
+      <h1 className="font-serif text-xl font-medium text-slate-900">{t("stTitle")}</h1>
       {msg && <div role="status" className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">{msg}</div>}
       {err && <div role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>}
 
@@ -76,7 +77,7 @@ export default function Storage() {
           <div className="text-xs text-slate-500">{t("stPurgedN", { n: v.usage.purged })} · {t("stKeptN", { n: v.usage.kept })}</div></div>
         <div className="card p-4"><div className="text-sm text-slate-500">{t("stFree")}</div><div className="mt-1 text-2xl font-semibold text-slate-900"><bdi dir="ltr">{size(v.usage.free_bytes)}</bdi></div></div>
         <div className="card p-4"><div className="text-sm text-slate-500">{t("stBackups")}</div><div className="mt-1 text-2xl font-semibold text-slate-900">{v.backups.length}</div>
-          <div className={`text-xs ${v.backup_encrypted ? "text-green-700" : "text-amber-700"}`}>{v.backup_encrypted ? `✓ ${t("stEncrypted")}` : `⚠ ${t("stPlain")}`}</div></div>
+          <div className={`text-xs ${v.backup_encrypted ? "text-green-700" : "text-amber-700"}`}>{v.backup_encrypted ? <><Sym k="ok" />{t("stEncrypted")}</> : <><Sym k="warn" />{t("stPlain")}</>}</div></div>
       </div>
 
       <section className="card p-5">
@@ -115,7 +116,7 @@ export default function Storage() {
         <h2 className="font-semibold text-slate-900">{t("stBackups")}</h2>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">{t("stBackupsHint")}</p>
         <div className={`mt-3 rounded-md px-3 py-2 text-sm ${v.backup_encrypted ? "bg-green-50 text-green-800" : "bg-amber-50 text-amber-800"}`}>
-          {v.backup_encrypted ? `✓ ${t("stEncOn")}` : `⚠ ${t("stEncOff")}`}
+          {v.backup_encrypted ? <><Sym k="ok" />{t("stEncOn")}</> : <><Sym k="warn" />{t("stEncOff")}</>}
         </div>
         <p className="mt-2 text-xs text-slate-500">{t("stDiskNote")}</p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, type AssetInfo, type AssetListing, type AssetType } from "../api";
 import { useI18n } from "../i18n";
+import { Sym } from "../components/Sym";
+import { FileType2 } from "lucide-react";
 
 // Admin: the Asset Library (certified stamps and signatures per translator, office stamp, Word templates).
 // Uploads never overwrite: the server adds a new file and switches the old one off (kept in "Earlier versions").
@@ -71,7 +73,7 @@ function Slot({ title, a, kind, owner, editable, onAdded }: { title: string; a?:
         {editable && !open && <button className="ms-auto text-sm text-brand-500 hover:underline" onClick={() => setOpen(true)}>{a ? t("asReplace") : t("asUpload")}</button>}
       </div>
       {a ? <Img a={a} /> : (
-        <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-amber-300 bg-amber-50 text-sm text-amber-800">⚠ {t("asMissing")}</div>
+        <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-amber-300 bg-amber-50 text-sm text-amber-800"><Sym k="warn" />{t("asMissing")}</div>
       )}
       {open && <ImageUpload kind={kind} owner={owner} onCancel={() => setOpen(false)} onDone={(x) => { setOpen(false); onAdded(x); }} />}
     </div>
@@ -156,7 +158,7 @@ export default function Assets() {
 
   if (!data) return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-slate-900">{t("asTitle")}</h1>
+      <h1 className="font-serif text-xl font-medium text-slate-900">{t("asTitle")}</h1>
       {err ? <div role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{err} <button className="ms-2 underline" onClick={load}>{t("retry")}</button></div>
         : <div className="card p-5 text-sm text-slate-500">…</div>}
     </div>
@@ -174,7 +176,7 @@ export default function Assets() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-slate-900">{t("asTitle")}</h1>
+      <h1 className="font-serif text-xl font-medium text-slate-900">{t("asTitle")}</h1>
       {!data.editable && <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">{t("asReadOnly")}</div>}
       {msg && <div role="status" className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">{msg} <span className="text-green-700">{t("asTransparentNote")}</span></div>}
       <Err msg={err} />
@@ -190,8 +192,8 @@ export default function Assets() {
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <span className="font-medium text-slate-900"><bdi>{name}</bdi></span>
                   <span className="font-mono text-xs text-slate-500"><bdi>{id}</bdi></span>
-                  {st && sig ? <span className="ms-auto rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">✓ {t("asCanCertify")}</span>
-                    : <span className="ms-auto rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">⚠ {t("asCannotCertify")}</span>}
+                  {st && sig ? <span className="ms-auto rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700"><Sym k="ok" />{t("asCanCertify")}</span>
+                    : <span className="ms-auto rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800"><Sym k="warn" />{t("asCannotCertify")}</span>}
                 </div>
                 <div className="flex flex-col gap-4 sm:flex-row">
                   <Slot title={t("asCertified")} a={st} kind="stamp_certified" owner={id} editable={data.editable} onAdded={added} />
@@ -218,11 +220,11 @@ export default function Assets() {
           {data.editable && !addTpl && <button className="btn-ghost" onClick={() => setAddTpl(true)}>+ {t("asAddTemplate")}</button>}
         </div>
         {addTpl && <TemplateForm onCancel={() => setAddTpl(false)} onDone={() => { setAddTpl(false); added(); }} />}
-        {templates.length === 0 ? <p className="mt-3 text-sm text-amber-800">⚠ {t("asMissing")}</p> : (
+        {templates.length === 0 ? <p className="mt-3 text-sm text-amber-800"><Sym k="warn" />{t("asMissing")}</p> : (
           <ul className="mt-3 divide-y divide-slate-100">
             {templates.map((a) => (
               <li key={a.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-3 text-sm">
-                <span className="text-lg" aria-hidden>📄</span>
+                <FileType2 aria-hidden className="h-5 w-5 text-blue-600" />
                 <div className="min-w-0 flex-1">
                   <div className="font-medium text-slate-900"><bdi>{a.name}</bdi></div>
                   <div className="text-xs text-slate-500">
@@ -244,7 +246,7 @@ export default function Assets() {
           <ul className="mt-3 divide-y divide-slate-100">
             {history.map((a) => (
               <li key={a.id} className="flex flex-wrap items-center gap-3 py-2.5 text-sm">
-                {a.type === "template" ? <span className="w-16 text-center text-lg" aria-hidden>📄</span>
+                {a.type === "template" ? <span className="flex w-16 justify-center" aria-hidden><FileType2 className="h-5 w-5 text-blue-600" /></span>
                   : <div className="w-16"><Img a={a} h="h-10" /></div>}
                 <div className="min-w-0 flex-1">
                   <div className="text-slate-800"><bdi>{a.name}</bdi></div>

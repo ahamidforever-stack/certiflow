@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { api, type SessionInfo } from "../api";
 import { useAuth } from "../App";
 import { useI18n } from "../i18n";
+import { useTheme } from "../theme";
+import { cn } from "../lib/cn";
+import { Monitor, Moon, Sun } from "lucide-react";
 
 // My account: the browsers where I am signed in, and "sign out all other devices".
 
@@ -14,7 +17,8 @@ function device(ua: string): string {
 }
 
 export default function Account() {
-  const { t } = useI18n();
+  const { t, lang, setLang } = useI18n();
+  const { mode, setMode } = useTheme();
   const { user } = useAuth();
   const [rows, setRows] = useState<SessionInfo[] | null>(null);
   const [err, setErr] = useState("");
@@ -30,12 +34,39 @@ export default function Account() {
   };
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-slate-900">{t("acTitle")}</h1>
-      <div className="card p-5 text-sm">
-        <div className="font-medium text-slate-900"><bdi>{user?.name}</bdi></div>
-        <div className="text-slate-500"><bdi>{user?.username}</bdi> · {user ? t(`role_${user.role}`) : ""}</div>
-      </div>
+    <div className="mx-auto max-w-4xl space-y-6 animate-fade-in">
+      <header className="flex items-center gap-4">
+        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-brand-600 text-lg font-semibold text-white">
+          <bdi>{(user?.name ?? "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase()}</bdi></span>
+        <div className="min-w-0">
+          <h1 className="page-title truncate"><bdi>{user?.name}</bdi></h1>
+          <div className="mt-0.5 text-sm text-slate-500"><bdi className="font-mono text-xs" dir="ltr">{user?.username}</bdi> · {user ? t(`role_${user.role}`) : ""}</div>
+        </div>
+      </header>
+
+      <section className="card p-5">
+        <h2 className="font-semibold text-slate-900">{t("acPrefs")}</h2>
+        <div className="mt-4 grid gap-5 sm:grid-cols-2">
+          <div>
+            <span className="label">{t("uiLanguage")}</span>
+            <div className="flex gap-1 rounded-lg bg-slate-100 p-1" role="radiogroup" aria-label={t("uiLanguage")}>
+              {([["en", "English"], ["ar", "العربية"]] as const).map(([code, label]) => (
+                <button key={code} role="radio" aria-checked={lang === code} onClick={() => { setLang(code); api.setLanguage(code).catch(() => {}); }}
+                  className={cn("flex-1 rounded-md px-3 py-1.5 text-sm transition", lang === code ? "bg-surface font-medium text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800")}>{label}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <span className="label">{t("themeLabel")}</span>
+            <div className="flex gap-1 rounded-lg bg-slate-100 p-1" role="radiogroup" aria-label={t("themeLabel")}>
+              {([["light", "themeLight", <Sun key="l" className="h-3.5 w-3.5" />], ["dark", "themeDark", <Moon key="d" className="h-3.5 w-3.5" />], ["system", "acThemeAuto", <Monitor key="s" className="h-3.5 w-3.5" />]] as const).map(([m, label, icon]) => (
+                <button key={m} role="radio" aria-checked={mode === m} onClick={() => setMode(m)}
+                  className={cn("flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition", mode === m ? "bg-surface font-medium text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800")}>{icon}{t(label)}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
       <section className="card p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
           <div className="min-w-0 flex-1">
@@ -53,7 +84,7 @@ export default function Account() {
             {err} <button className="ms-2 underline" onClick={load}>{t("retry")}</button>
           </div>
         )}
-        {!rows && !err && <div className="mt-4 text-sm text-slate-500">…</div>}
+        {!rows && !err && <div className="mt-4 space-y-2" aria-hidden>{[0, 1].map((i) => <div key={i} className="skeleton h-10" />)}</div>}
         {rows && (
           <ul className="mt-4 divide-y divide-slate-100">
             {rows.map((r) => (

@@ -102,7 +102,7 @@ export default function Usage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold text-slate-900">{t("coTitle")}</h1>
+        <h1 className="font-serif text-xl font-medium text-slate-900">{t("coTitle")}</h1>
         <div role="group" aria-label={t("coRange")} className="ms-auto inline-flex rounded-lg border border-slate-300 bg-surface p-0.5">
           {RANGES.map((r) => (
             <button key={r} aria-pressed={days === r} onClick={() => setDays(r)}

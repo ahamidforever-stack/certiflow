@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type AdminEvent, type AdminUser, type Role } from "../api";
 import { useAuth } from "../App";
 import { useI18n } from "../i18n";
+import { Sym } from "../components/Sym";
+import { X, Pencil, Plus } from "lucide-react";
 
 // Admin: user accounts (add, role, deactivate, password, unlock, sign out) and the log of these changes.
 
@@ -70,8 +72,8 @@ export default function Users() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold text-slate-900">{t("usTitle")}</h1>
-        {!adding && <button className="btn-primary ms-auto" onClick={() => setAdding(true)}>+ {t("usAdd")}</button>}
+        <h1 className="font-serif text-xl font-medium text-slate-900">{t("usTitle")}</h1>
+        {!adding && <button className="btn-primary btn-sm ms-auto" onClick={() => setAdding(true)}><Plus className="h-4 w-4" />{t("usAdd")}</button>}
       </div>
 
       {adding && <AddUser onDone={(u) => { setAdding(false); if (u) updated(u); }} />}
@@ -81,12 +83,12 @@ export default function Users() {
           {err} <button className="ms-2 underline" onClick={load}>{t("retry")}</button>
         </div>
       )}
-      {!users && !err && <div className="card p-5 text-sm text-slate-500">…</div>}
+      {!users && !err && <div className="space-y-2" aria-hidden>{[0, 1, 2].map((i) => <div key={i} className="skeleton h-14 rounded-xl" />)}</div>}
       {users && users.length === 0 && <div className="card p-5 text-sm text-slate-500">{t("usEmpty")}</div>}
       {users && users.length > 0 && (
-        <div className="card overflow-hidden">
+        <div className="card overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="hidden bg-slate-50 text-start text-xs uppercase tracking-wide text-slate-500 md:table-header-group">
+            <thead className="hidden border-b border-slate-200/80 bg-slate-50/70 text-start text-xs font-semibold text-slate-500 md:table-header-group">
               <tr>
                 <th className="px-4 py-2 text-start font-medium">{t("usName")}</th>
                 <th className="px-4 py-2 text-start font-medium">{t("usRole")}</th>
@@ -101,24 +103,30 @@ export default function Users() {
               {users.map((u) => (
                 <tr key={u.id} className={`flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 md:table-row md:p-0 ${u.active ? "" : "opacity-60"}`}>
                   <td className="w-full md:w-auto md:px-4 md:py-3">
-                    <div className="font-medium text-slate-900"><bdi>{u.name}</bdi>{u.id === me?.id && <span className="ms-2 text-xs font-normal text-slate-500">({t("usYou")})</span>}</div>
-                    <div className="font-mono text-xs text-slate-500"><bdi>{u.username}</bdi></div>
+                    <div className="flex items-center gap-3">
+                      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${u.role === "admin" ? "bg-slate-700 text-white" : u.role === "certified_translator" ? "bg-brand-600 text-white" : "bg-brand-100 text-brand-700"}`}>
+                        <bdi>{u.name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase()}</bdi></span>
+                      <div className="min-w-0">
+                        <div className="whitespace-nowrap font-medium text-slate-900"><bdi>{u.name}</bdi>{u.id === me?.id && <span className="ms-2 text-xs font-normal text-slate-500">({t("usYou")})</span>}</div>
+                        <div className="font-mono text-xs text-slate-500"><bdi>{u.username}</bdi></div>
+                      </div>
+                    </div>
                   </td>
-                  <td className="md:px-4 md:py-3">{t(`role_${u.role}`)}</td>
+                  <td className="md:px-4 md:py-3"><span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${u.role === "certified_translator" ? "bg-seal-50 text-seal-800 ring-1 ring-seal-200" : "bg-slate-100 text-slate-700"}`}>{t(`role_${u.role}`)}</span></td>
                   <td className="md:px-4 md:py-3"><StatusPill u={u} /></td>
                   <td className="md:px-4 md:py-3">
                     {u.role === "certified_translator"
-                      ? (u.certified_stamp ? <span className="text-green-700">✓ {t("usStampYes")}</span>
-                        : <span className="text-amber-700" title={t("usStampNeeded")}>⚠ {t("usStampNo")}</span>)
+                      ? (u.certified_stamp ? <span className="text-green-700"><Sym k="ok" />{t("usStampYes")}</span>
+                        : <span className="text-amber-700" title={t("usStampNeeded")}><Sym k="warn" />{t("usStampNo")}</span>)
                       : <span className="text-slate-400">—</span>}
                   </td>
                   <td className="text-slate-600 md:px-4 md:py-3">
                     <span className="me-1 text-slate-500 md:hidden">{t("usLastLogin")}:</span>
-                    {u.last_login_at ? <span dir="ltr">{fmt(u.last_login_at)}</span> : t("usNever")}
+                    {u.last_login_at ? <span className="whitespace-nowrap" dir="ltr">{fmt(u.last_login_at)}</span> : t("usNever")}
                   </td>
                   <td className="text-slate-600 md:px-4 md:py-3"><span className="me-1 text-slate-500 md:hidden">{t("usDevices")}:</span>{u.devices}</td>
                   <td className="ms-auto md:px-4 md:py-3 md:text-end">
-                    <button className="btn-ghost px-3 py-1" onClick={() => setEditing(u)}>{t("usEdit")}</button>
+                    <button className="btn-ghost btn-sm" onClick={() => setEditing(u)}><Pencil className="h-3.5 w-3.5" />{t("usEdit")}</button>
                   </td>
                 </tr>
               ))}
@@ -226,7 +234,7 @@ function EditUser({ u, isMe, onUpdated, onClose }: { u: AdminUser; isMe: boolean
             <div className="font-mono text-xs text-slate-500"><bdi>{u.username}</bdi></div>
           </div>
           <StatusPill u={u} />
-          <button className="text-slate-400 hover:text-slate-700" onClick={onClose} aria-label={t("usClose")}>✕</button>
+          <button className="text-slate-400 hover:text-slate-700" onClick={onClose} aria-label={t("usClose")}><X className="h-4 w-4" /></button>
         </div>
 
         <div className="space-y-3">
@@ -245,7 +253,7 @@ function EditUser({ u, isMe, onUpdated, onClose }: { u: AdminUser; isMe: boolean
             {t("usAccountActive")}
           </label>
           {isMe && <p className="text-xs text-slate-500">{t("usErrSelf")}</p>}
-          {role === "certified_translator" && !u.certified_stamp && <p className="text-xs text-amber-700">⚠ {t("usStampNeeded")}</p>}
+          {role === "certified_translator" && !u.certified_stamp && <p className="text-xs text-amber-700"><Sym k="warn" />{t("usStampNeeded")}</p>}
           <button className="btn-primary" disabled={busy || !dirty || !name.trim()}
             onClick={() => run(() => api.adminUpdateUser(u.id, { name: name.trim(), role, active }), t("usSaved"))}>{t("usSave")}</button>
         </div>
