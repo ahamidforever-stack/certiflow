@@ -952,6 +952,58 @@
     }
    }
   },
+  "/api/admin/clients": {
+   "get": {
+    "summary": "Admin Clients",
+    "operationId": "admin_clients_api_admin_clients_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/admin/clients/members": {
+   "put": {
+    "summary": "Admin Set Members",
+    "operationId": "admin_set_members_api_admin_clients_members_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MembersIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/admin/usage": {
    "get": {
     "summary": "Admin Usage",
@@ -2577,6 +2629,27 @@
      "password"
     ],
     "title": "LoginIn"
+   },
+   "MembersIn": {
+    "properties": {
+     "client": {
+      "type": "string",
+      "title": "Client"
+     },
+     "usernames": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Usernames"
+     }
+    },
+    "type": "object",
+    "required": [
+     "client",
+     "usernames"
+    ],
+    "title": "MembersIn"
    },
    "PasswordIn": {
     "properties": {

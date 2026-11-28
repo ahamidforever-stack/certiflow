@@ -43,6 +43,8 @@ export interface StorageView { settings: StorageSettings;
   candidates: { id: string; title: string; status: string; last_activity: string; rule: string }[];
   backups: { name: string; size: number; encrypted: boolean; created: string }[];
   backup_state: { running: boolean; last_error: string | null }; backup_encrypted: boolean; backup_dir: string }
+export interface Member { id: number; username: string; name: string; role: Role }
+export interface ClientsAdmin { clients: { client: string; jobs: number; terms: number; members: Member[] }[]; accounts: Member[] }
 export interface UsageAgent { agent: string; calls: number; cost_usd: number; input_tokens: number; output_tokens: number; cache_read_tokens: number }
 export interface Usage { days: number; timezone: string; from: string; to: string;
   tiles: { today: number; week: number; month: number };
@@ -108,6 +110,8 @@ export const api = {
   adminRunRetention: () => req<StorageView & { result: { enabled: boolean; purged: string[]; freed: number } }>("POST", "/api/admin/storage/retention/run"),
   adminCreateBackup: () => req<{ started: boolean }>("POST", "/api/admin/storage/backups"),
   setKeep: (id: string, keep: boolean) => req<Job>("PUT", `/api/jobs/${id}/keep`, { keep }),
+  adminClients: () => req<ClientsAdmin>("GET", "/api/admin/clients"),
+  adminSetMembers: (client: string, usernames: string[]) => req<ClientsAdmin>("PUT", "/api/admin/clients/members", { client, usernames }),
   adminUsage: (days: number) => req<Usage>("GET", `/api/admin/usage?days=${days}`),
   adminEvents: () => req<AdminEvent[]>("GET", "/api/admin/events"),
   sessions: () => req<SessionInfo[]>("GET", "/api/me/sessions"),

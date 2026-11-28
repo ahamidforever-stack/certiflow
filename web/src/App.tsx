@@ -16,6 +16,7 @@ import Glossaries from "./pages/Glossaries";
 import Models from "./pages/Models";
 import Languages from "./pages/Languages";
 import Storage from "./pages/Storage";
+import Clients from "./pages/Clients";
 
 const AuthCtx = createContext<{ user: User | null; setUser: (u: User | null) => void }>({ user: null, setUser: () => {} });
 export const useAuth = () => useContext(AuthCtx);
@@ -45,6 +46,7 @@ export default function App() {
               <Route path="/admin" element={<AdminLayout />}>
                 <Route index element={<Navigate to="users" replace />} />
                 <Route path="users" element={<Users />} />
+                <Route path="clients" element={<Clients />} />
                 <Route path="assets" element={<Assets />} />
                 <Route path="models" element={<Models />} />
                 <Route path="languages" element={<Languages />} />
@@ -101,7 +103,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 // Admin area: one menu entry, tabs for its pages.
 function AdminLayout() {
   const { t } = useI18n();
-  const tabs: [string, string][] = [["users", t("users")], ["assets", t("assets")], ["models", t("models")], ["languages", t("languages")], ["usage", t("costs")], ["storage", t("storage")]];
+  const tabs: [string, string][] = [["users", t("users")], ["clients", t("clients")], ["assets", t("assets")], ["models", t("models")], ["languages", t("languages")], ["usage", t("costs")], ["storage", t("storage")]];
   return (
     <div className="space-y-4">
       <nav aria-label={t("admin")} className="-mt-2 flex flex-wrap gap-1 border-b border-slate-200">

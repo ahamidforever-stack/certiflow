@@ -224,4 +224,13 @@ Dockerfile, docker-compose.yml, docker/entrypoint.sh, .env.example
   off; tests pass `scheduler=False`). CLI: `certiflow web backup [--no-jobs]`, `decrypt-backup --file F --out O`,
   `purge`. API: `/api/admin/storage[...]`, `PUT /api/jobs/{id}/keep`. Screen: Admin → Storage; job page shows the
   hold switch (admins) and a banner when files were deleted. Live data encryption is the disk's job (see SPEC §10).
+- **Step 7, client access groups and CI (done):**
+  - *Access groups:* `client_members` (migration 0007). A client with members is restricted: only members and admins
+    start jobs for it (403 otherwise), see its jobs (members see all of them, also as reviewers) and its glossary
+    memory. A client without members is open (each person sees their own jobs, as before). All job access goes
+    through `_may_see()` / `_job_for()` in `web/app.py`. API: `GET /api/admin/clients`,
+    `PUT /api/admin/clients/members` (an empty list opens the client again). Screen: Admin → Clients.
+  - *CI:* `.github/workflows/ci.yml` runs on every pull request and push to `main`: Python tests (with LibreOffice,
+    Poppler, Tesseract), error-level ruff, `init-db` + `alembic check`, web `tsc` + build, and the Playwright
+    walkthrough (traces kept as an artifact when it fails). Offline, no secrets; office-file tests are skipped there.
 

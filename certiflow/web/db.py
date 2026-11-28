@@ -116,6 +116,17 @@ class ClientTerm(Base):
     uses: Mapped[int] = mapped_column(Integer, default=1)
 
 
+class ClientMember(Base):
+    """Access group of a client. A client with members is restricted: only its members (and admins) start jobs for it,
+    see its jobs and its glossary memory. Members see all of the client's jobs, not only their own."""
+    __tablename__ = "client_members"
+    __table_args__ = (UniqueConstraint("client_key", "user_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_key: Mapped[str] = mapped_column(String(200), index=True)
+    client: Mapped[str] = mapped_column(String(200))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+
+
 def client_key(name: Optional[str]) -> str:
     return " ".join((name or "").split()).casefold()[:200]
 

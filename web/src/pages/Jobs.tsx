@@ -38,7 +38,8 @@ export default function Jobs() {
               {jobs.map((j) => (
                 <tr key={j.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                   <td className="px-4 py-3"><Link to={`/jobs/${j.id}`} className="font-medium text-brand-600 hover:underline">{j.title}</Link>
-                    <div className="font-mono text-xs text-slate-400" dir="ltr">{j.id}</div></td>
+                    {j.client && <div className="text-xs text-slate-600"><bdi>{j.client}</bdi></div>}
+                    <div className="font-mono text-xs text-slate-400"><bdi dir="ltr">{j.id}</bdi></div></td>
                   <td className="px-4 py-3"><LangPair s={j.source_language} t={j.target_language} /></td>
                   <td className="px-4 py-3">{j.stamp === "certified" ? t("certified") : t("officeStamp")}</td>
                   <td className="px-4 py-3"><StatusChip status={j.status} /></td>

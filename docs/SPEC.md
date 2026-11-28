@@ -92,7 +92,7 @@ Legend: ✅ done and tested · 🟡 partial / different from brief (see notes) �
 | 7 | Docker Compose with LibreOffice, Tesseract packs, fonts | ✅ | Built and run end to end |
 | 7 | Screens: new job, pipeline view, release | ✅ | |
 | 7 | Screens: side-by-side editor, PDF preview, admin, audit view | ⬜ | Phases 4 and 5 |
-| 8 | Encryption at rest, retention/auto-delete, per-client access | 🟡 | Retention, legal hold and encrypted backups done (Phase 5); live data on encrypted disks; per-client access open |
+| 8 | Encryption at rest, retention/auto-delete, per-client access | ✅ | Phase 5: retention, legal hold, encrypted backups, client access groups; live data on encrypted disks |
 | 8 | API key server-side only | ✅ | |
 | 8 | Release only after certified approval; open blockers block | ✅ | |
 | 9 | Builder tests across the pair matrix, stamp overlap tests | ✅ | 64 tests |
@@ -509,11 +509,13 @@ Tahoma for Arabic on Windows).
   AES-256-GCM (scrypt-derived key, chunked, truncation detected) when `CERTIFLOW_BACKUP_KEY` is set. The newest N
   are kept in `CERTIFLOW_BACKUP_DIR` (default `<data>/backups`); copy them off the server.
 
+- **Client access groups (Phase 5):** a client with members is visible only to them and to admins (jobs, glossary
+  memory, the client name in suggestions); members see all of its jobs.
+
 **Gaps:**
 - **Phase 5 items:**
   - encryption at rest for `/data` and the database: by the disk (LUKS or the cloud provider's encrypted disks);
     the app encrypts its backups only
-  - per-client access groups
   - an audit log UI
 - **Deployment item:** TLS terminated at a reverse proxy (Caddy or nginx).
 
@@ -624,15 +626,18 @@ holds the office assets as secrets.
   - prompt versions and model settings
   - glossary memory per client
 - Usage and cost dashboard.
-- Batch API ("bulk, lower cost").
-- Langfuse tracing.
+- Batch API ("bulk, lower cost"): **later, if needed.** Batch results can take up to 24 h per request and a job runs
+  5-6 agent steps in sequence, so jobs would take hours. Worth it only for large, non-urgent batches once the Costs
+  page shows a significant API bill.
+- Langfuse tracing: **later, if needed.** It stores full prompts and responses (document text); the own audit log,
+  the Costs page and `golden score` cover operations. If used for prompt tuning, self-host it.
 - Storage, encryption and retention:
   - MinIO/S3 storage
   - encryption at rest
   - retention and auto-deletion
   - backups
 - Security: login rate limiting, session revocation, per-client access groups.
-- Packaging and CI: OCR packs installable on demand, CI pipeline.
+- Packaging and CI: OCR packs installable on demand (open); CI pipeline (done: `.github/workflows/ci.yml`).
 
 **Known limitations and technical debt**
 - **Prompts** are v1 and not yet tuned against real API output. The first `golden score` run is in progress.

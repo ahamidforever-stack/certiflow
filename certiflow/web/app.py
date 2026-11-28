@@ -34,7 +34,7 @@ from . import runner
 from .auth import COOKIE, hash_password, make_token, read_token, verify_dummy, verify_password
 from .config import WebConfig, get_config, set_config
 from .db import Job as JobRow
-from .db import (ROLES, AdminEvent, ClientTerm, JobDocument, JobEvent, LoginAttempt, User, UserSession, aware, revoke_sessions,
+from .db import (ROLES, AdminEvent, ClientMember, ClientTerm, JobDocument, JobEvent, LoginAttempt, User, UserSession, aware, revoke_sessions,
                  client_key, session_factory, user_by_username, utcnow)
 
 SOURCE_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".docx", ".doc", ".odt", ".rtf"}
@@ -88,6 +88,11 @@ class AgentSettingsIn(BaseModel):
     effort: str
     prompt_version: str
     max_tokens: int
+
+
+class MembersIn(BaseModel):
+    client: str
+    usernames: list[str]
 
 
 class KeepIn(BaseModel):
@@ -670,6 +675,50 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
             s.commit()
             return _job_out(row)
 
+    # ------------------------------------------------------------------ admin: clients and access groups
+
+    @app.get("/api/admin/clients")
+    def admin_clients(_: User = Depends(admin_user)):
+        with Session() as s:
+            out: dict[str, dict] = {}
+
+            def entry(name: str) -> dict:
+                return out.setdefault(client_key(name), {"client": name, "jobs": 0, "terms": 0, "members": []})
+            for name, n in s.execute(select(JobRow.client, func.count()).where(JobRow.client.is_not(None))
+                                     .group_by(JobRow.client)):
+                entry(name)["jobs"] += n
+            for name, n in s.execute(select(ClientTerm.client, func.count()).group_by(ClientTerm.client)):
+                entry(name)["terms"] += n
+            users = {x.id: x for x in s.scalars(select(User))}
+            for m in s.scalars(select(ClientMember)):
+                x = users[m.user_id]
+                entry(m.client)["members"].append({"id": x.id, "username": x.username, "name": x.name, "role": x.role})
+            accounts = [{"id": x.id, "username": x.username, "name": x.name, "role": x.role}
+                        for x in users.values() if x.active and x.role != "admin"]
+        return {"clients": sorted(out.values(), key=lambda c: c["client"].casefold()), "accounts": accounts}
+
+    @app.put("/api/admin/clients/members")
+    def admin_set_members(body: MembersIn, a: User = Depends(admin_user), _=Depends(csrf)):
+        name = " ".join(body.client.split())[:200]
+        if not name:
+            raise HTTPException(422, "client name is required")
+        key = client_key(name)
+        with Session() as s:
+            ids = []
+            for un in dict.fromkeys(body.usernames):
+                x = user_by_username(s, un)
+                if x is None or x.role == "admin":
+                    raise HTTPException(422, f"unknown user {un} (admins always have access)")
+                ids.append(x.id)
+            before = {m.user_id for m in s.scalars(select(ClientMember).where(ClientMember.client_key == key))}
+            s.execute(delete(ClientMember).where(ClientMember.client_key == key))
+            for i in ids:
+                s.add(ClientMember(client_key=key, client=name, user_id=i))
+            if before != set(ids):
+                _log(s, a, "client_access", name, members=len(ids))
+            s.commit()
+        return admin_clients(a)
+
     @app.get("/api/admin/usage")
     def admin_usage(days: int = 30, _: User = Depends(admin_user)):
         from .usage import summary
@@ -743,9 +792,28 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
 
     # -------------------------------------------------------------------- jobs
 
+    def _groups(s) -> dict[str, set[int]]:
+        """Restricted clients: client key -> member user ids."""
+        out: dict[str, set[int]] = {}
+        for m in s.scalars(select(ClientMember)):
+            out.setdefault(m.client_key, set()).add(m.user_id)
+        return out
+
+    def _client_allowed(s, client: Optional[str], u: User, groups: Optional[dict] = None) -> bool:
+        """May this user work with this client (start jobs, see its glossary memory)?"""
+        if u.role == "admin" or not client:
+            return True
+        members = (groups if groups is not None else _groups(s)).get(client_key(client))
+        return members is None or u.id in members
+
+    def _may_see(s, row: JobRow, u: User) -> bool:
+        if u.role == "admin" or row.created_by == u.id or row.approved_by == u.id:
+            return True
+        return bool(row.client) and u.id in _groups(s).get(client_key(row.client), set())
+
     def _job_for(s, job_id: str, u: User) -> JobRow:
         row = s.get(JobRow, job_id)
-        if row is None or not _may_see(row, u):
+        if row is None or not _may_see(s, row, u):
             raise HTTPException(404, "job not found")
         return row
 
@@ -782,6 +850,9 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
             raise HTTPException(403, f"stamp not available to you: {e}")
         if not files:
             raise HTTPException(422, "add at least one source document")
+        with Session() as s:
+            if not _client_allowed(s, " ".join((client or "").split()), u):
+                raise HTTPException(403, "this client is restricted to its access group")
         per_doc = json.loads(overrides) if overrides else {}
 
         job_id = datetime.now(timezone.utc).strftime("J%Y%m%d-") + secrets.token_hex(3)
@@ -849,7 +920,11 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
         with Session() as s:
             q = select(JobRow).order_by(JobRow.created_at.desc()).limit(200)
             if u.role != "admin":
-                q = q.where(JobRow.created_by == u.id)
+                mine = [k for k, ids in _groups(s).items() if u.id in ids]
+                cond = (JobRow.created_by == u.id) | (JobRow.approved_by == u.id)
+                if mine:
+                    cond = cond | func.lower(JobRow.client).in_(mine)
+                q = q.where(cond)
             return [_job_out(r, brief=True) for r in s.scalars(q)]
 
     @app.get("/api/jobs/{job_id}")
@@ -990,16 +1065,24 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
                 by_key.setdefault(client_key(n), n)
             for n in s.scalars(select(ClientTerm.client).order_by(ClientTerm.updated_at.desc())):
                 by_key.setdefault(client_key(n), n)
-        return sorted(by_key.values(), key=str.casefold)
+            groups = _groups(s)
+        return sorted((n for n in by_key.values() if _client_allowed(None, n, u, groups)), key=str.casefold)
+
+    def _term_allowed(s, t: ClientTerm, u: User) -> None:
+        if not _client_allowed(s, t.client, u):
+            raise HTTPException(404, "no such term")
 
     @app.get("/api/glossary-memory")
-    def memory_overview(_: User = Depends(translator_or_admin)):
+    def memory_overview(u: User = Depends(translator_or_admin)):
         with Session() as s:
+            groups = _groups(s)
             rows = s.execute(select(ClientTerm.client_key, ClientTerm.source_language, ClientTerm.target_language,
                                     func.count(), func.max(ClientTerm.updated_at), func.max(ClientTerm.client))
                              .group_by(ClientTerm.client_key, ClientTerm.source_language, ClientTerm.target_language)).all()
         out: dict[str, dict] = {}
         for key, a, b, n, last, name in rows:
+            if not _client_allowed(None, name, u, groups):
+                continue
             c = out.setdefault(key, {"client": name, "terms": 0, "pairs": [], "updated_at": None})
             c["terms"] += n
             c["pairs"].append({"source": a, "target": b, "terms": n})
@@ -1008,8 +1091,10 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
 
     @app.get("/api/glossary-memory/terms")
     def memory_terms(client: str, source: Optional[str] = None, target: Optional[str] = None,
-                     _: User = Depends(translator_or_admin)):
+                     u: User = Depends(translator_or_admin)):
         with Session() as s:
+            if not _client_allowed(s, client, u):
+                return []
             q = select(ClientTerm).where(ClientTerm.client_key == client_key(client))
             if source:
                 q = q.where(ClientTerm.source_language == source)
@@ -1028,16 +1113,18 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
             t = s.get(ClientTerm, term_id)
             if t is None:
                 raise HTTPException(404, "no such term")
+            _term_allowed(s, t, u)
             t.target, t.kind, t.updated_at, t.updated_by = target, body.kind, utcnow(), u.username
             s.commit()
             return _term_out(t)
 
     @app.delete("/api/glossary-memory/terms/{term_id}")
-    def memory_delete(term_id: int, _: User = Depends(translator_or_admin), __=Depends(csrf)):
+    def memory_delete(term_id: int, u: User = Depends(translator_or_admin), __=Depends(csrf)):
         with Session() as s:
             t = s.get(ClientTerm, term_id)
             if t is None:
                 raise HTTPException(404, "no such term")
+            _term_allowed(s, t, u)
             s.delete(t)
             s.commit()
         return {"ok": True}
@@ -1298,10 +1385,6 @@ def _sse(event: str, data: dict) -> str:
 
 def _user_out(u: User) -> dict:
     return {"id": u.id, "username": u.username, "name": u.name, "role": u.role, "ui_language": u.ui_language}
-
-
-def _may_see(row: JobRow, u: User) -> bool:
-    return u.role == "admin" or row.created_by == u.id or row.approved_by == u.id
 
 
 def _term_out(t: ClientTerm) -> dict:

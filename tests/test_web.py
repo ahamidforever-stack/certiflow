@@ -939,3 +939,41 @@ def _dubai(now, hour):
     from datetime import timezone
     from zoneinfo import ZoneInfo
     return now.astimezone(ZoneInfo("Asia/Dubai")).replace(hour=hour, minute=0).astimezone(timezone.utc)
+
+
+# ------------------------------------------------------------------ Phase 5: client access groups
+
+
+def test_client_access_groups(web, src_pdf):
+    _, app = web
+    t1, t2, rv1, a = client(app, "translator1"), client(app, "translator2"), client(app, "reviewer1"), client(app, "admin")
+    j = _job_for_client(t1, src_pdf, "Royal Court")
+    t1.post(f"/api/jobs/{j}/glossary/confirm", json={"items": [{"source": "Court", "target": "المحكمة"}]}, headers=H)
+    # unrestricted: like before (only the creator and admins see the job; everyone may use the client name)
+    assert t2.get(f"/api/jobs/{j}").status_code == 404 and rv1.get(f"/api/jobs/{j}").status_code == 404
+    assert "Royal Court" in t2.get("/api/clients").json()
+    # restrict the client to translator1 + reviewer1
+    r = a.put("/api/admin/clients/members", json={"client": "royal  court", "usernames": ["translator1", "reviewer1"]},
+              headers=H)
+    assert r.status_code == 200
+    c0 = next(x for x in r.json()["clients"] if x["client"].lower() == "royal court")
+    assert {m["username"] for m in c0["members"]} == {"translator1", "reviewer1"} and c0["jobs"] == 1
+    assert a.put("/api/admin/clients/members", json={"client": "x", "usernames": ["admin"]}, headers=H).status_code == 422
+    # members see the client's jobs, also jobs they did not start
+    assert rv1.get(f"/api/jobs/{j}").status_code == 200
+    assert j in [x["id"] for x in rv1.get("/api/jobs").json()]
+    # non-members: no job, no client name, no glossary memory, cannot start a job for it
+    assert t2.get(f"/api/jobs/{j}").status_code == 404 and j not in [x["id"] for x in t2.get("/api/jobs").json()]
+    assert "Royal Court" not in t2.get("/api/clients").json()
+    assert all(x["client"] != "Royal Court" for x in t2.get("/api/glossary-memory").json())
+    assert t2.get("/api/glossary-memory/terms", params={"client": "Royal Court"}).json() == []
+    term = t1.get("/api/glossary-memory/terms", params={"client": "Royal Court"}).json()[0]
+    assert t2.delete(f"/api/glossary-memory/terms/{term['id']}", headers=H).status_code == 404
+    r = t2.post("/api/jobs", data={"source_language": "en", "target_language": "ar", "stamp": "certified",
+                                   "client": "ROYAL COURT"},
+                files={"files": ("c.pdf", src_pdf.read_bytes(), "application/pdf")}, headers=H)
+    assert r.status_code == 403
+    # removing all members makes the client unrestricted again
+    a.put("/api/admin/clients/members", json={"client": "Royal Court", "usernames": []}, headers=H)
+    assert "Royal Court" in t2.get("/api/clients").json() and rv1.get(f"/api/jobs/{j}").status_code == 404
+    assert "client_access" in [e["action"] for e in a.get("/api/admin/events").json()]

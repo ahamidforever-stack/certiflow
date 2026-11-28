@@ -1,0 +1,107 @@
+# Checks for every pull request and every push to main. Offline: mock LLM, sample assets, no secrets needed.
+# Office files (assets/, inputs/, fonts) are never in the repository, so the tests that need them are skipped here.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CERTIFLOW_LLM: mock
+  CERTIFLOW_SCHEDULER: "0"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  python:
+    name: Python tests, lint, migrations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: System tools (LibreOffice, Poppler, Tesseract, fonts)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-writer-nogui poppler-utils \
+            tesseract-ocr tesseract-ocr-ara tesseract-ocr-eng tesseract-ocr-fra tesseract-ocr-deu \
+            tesseract-ocr-spa tesseract-ocr-rus fonts-liberation fonts-hosny-amiri fonts-noto-core
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e ".[web,dev]"
+      - name: Lint (errors only)
+        run: ruff check --select E9,F63,F7,F82 certiflow tests
+      - name: Migrations are complete
+        run: |
+          export CERTIFLOW_DATA_DIR="$RUNNER_TEMP/migrations"
+          certiflow web init-db
+          alembic check
+      - name: Tests
+        run: python -m pytest -q
+
+  web:
+    name: Web types and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc -b
+      - run: npm run build
+
+  e2e:
+    name: Browser walkthrough (Playwright)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: [web]
+    env:
+      E2E_DIR: ${{ github.workspace }}/../e2e-run
+    steps:
+      - uses: actions/checkout@v4
+      - name: System tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-writer-nogui poppler-utils \
+            tesseract-ocr tesseract-ocr-ara tesseract-ocr-eng fonts-liberation fonts-hosny-amiri fonts-noto-core
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[web,dev]"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web packages and Chromium
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Walkthrough
+        working-directory: web
+        run: npm run e2e
+      - name: Keep the Playwright traces when it fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: ${{ github.workspace }}/../e2e-run/results
+          retention-days: 7

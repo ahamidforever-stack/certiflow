@@ -2,9 +2,15 @@
 measured position, or inline at the top of every footer as a fallback."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from docx.enum.text import WD_TAB_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.shared import Mm, Pt
+
+if TYPE_CHECKING:                     # type hints only (docx_builder imports this module)
+    from .docx_builder import SealSpec
+
 
 def _active_footers(docx):
     out = []
