@@ -250,7 +250,7 @@ function BlockCard({ b, sDir, tDir, sLang, tLang, editable, draft, active, onHov
 
   return (
     <article id={`tgt-${b.id}`} onMouseEnter={() => onHover(true)} onMouseLeave={() => onHover(false)}
-      className={`rounded-xl border bg-white shadow-sm transition ${border} ${active ? "ring-2 ring-brand-100" : ""}`}>
+      className={`rounded-xl border bg-surface shadow-sm transition ${border} ${active ? "ring-2 ring-brand-100" : ""}`}>
       <header className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-1.5 text-xs text-slate-500">
         {editable && !b.multilingual_duplicate && (
           <input type="checkbox" checked={picked} onChange={(e) => onPick(e.target.checked)} aria-label={t("rvPick", { id: b.id })}
@@ -363,7 +363,7 @@ function FlagRow({ f, editable, onResolve }: { f: NonNullable<DocBlock["flags"]>
       </div>
       {open && (
         <div className="mt-2 flex flex-wrap gap-2">
-          <input className="input min-w-[12rem] flex-1 bg-white" dir="auto" placeholder={blocker ? t("rvCommentRequired") : t("rvCommentOptional")}
+          <input className="input min-w-[12rem] flex-1 bg-surface" dir="auto" placeholder={blocker ? t("rvCommentRequired") : t("rvCommentOptional")}
             aria-label={t("rvComment")} value={comment} onChange={(e) => setComment(e.target.value)} />
           <button className="btn-primary px-3 py-1" disabled={blocker && !comment.trim()} onClick={() => onResolve(comment)}>{t("rvResolve")}</button>
           <button className="btn-ghost px-3 py-1" onClick={() => setOpen(false)}>{t("rvCancel")}</button>

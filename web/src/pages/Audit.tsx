@@ -52,7 +52,7 @@ export default function Audit() {
           <div className="flex flex-wrap items-center gap-2">
             {(["all", "people", "agents"] as Filter[]).map((f) => (
               <button key={f} onClick={() => setFilter(f)} aria-pressed={filter === f}
-                className={`rounded-full px-3 py-1 text-sm ${filter === f ? "bg-brand-600 text-white" : "bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50"}`}>{t(`auF_${f}`)}</button>
+                className={`rounded-full px-3 py-1 text-sm ${filter === f ? "bg-brand-600 text-white" : "bg-surface text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50"}`}>{t(`auF_${f}`)}</button>
             ))}
             <span className="ms-auto text-sm text-slate-600">
               {t("auCalls", { n: calls.length })} · <span className="font-mono" dir="ltr">${cost.toFixed(3)}</span>
