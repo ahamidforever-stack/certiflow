@@ -131,3 +131,15 @@ class FormatDecision(BaseModel):
 
 class FormatterOut(BaseModel):
     decisions: list[FormatDecision]
+
+
+# ------------------------------------------------------- assistant (review helper)
+
+class AssistSuggestion(BaseModel):
+    text: str                                # a complete alternative translation of the block, ready to use
+    note: str                                # why this wording, one short sentence in the interface language
+
+
+class AssistOut(BaseModel):
+    answer: str                              # reply to the translator, in the interface language
+    suggestions: list[AssistSuggestion]      # 0-3 alternative translations; empty when the question needs none

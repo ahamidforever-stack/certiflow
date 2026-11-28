@@ -1,4 +1,4 @@
-"""The agents: Intake, Glossary, Translator, Proofreader, QA, Formatter.
+"""The agents: Intake, Glossary, Translator, Proofreader, QA, Formatter, and the review helper (Assistant).
 
 Each agent function takes the AgentContext and the Document model, calls the
 model through ``call_agent`` with its own prompt file and output contract, and
@@ -18,7 +18,7 @@ from ..model import (Block, BlockStatus, BlockType, Document, Flag, GlossaryEntr
 from ..ocr import PageScan, crop_norm, jpeg_bytes, scan_document
 from ..qa.scan import figures_added, figures_match, identifiers_match, leftover_source_script, stray_punctuation
 from .base import AgentContext, call_agent
-from .contracts import (FormatterOut, GlossaryOut, IntakePageOut, ProofreaderOut, QAIssue, QAOut, SourceBlockOut,
+from .contracts import (AssistOut, FormatterOut, GlossaryOut, IntakePageOut, ProofreaderOut, QAIssue, QAOut, SourceBlockOut,
                         TranslatorOut, ZoomOut)
 
 TEXT_TYPES = {BlockType.heading, BlockType.paragraph, BlockType.numbered_item, BlockType.bullet,
@@ -420,3 +420,27 @@ def format_document(ctx: AgentContext, doc: Document) -> Document:
         out.append(b)
     doc.blocks = out
     return doc
+
+
+# ================================================================ review helper
+
+def assist(ctx: AgentContext, doc: Document, block_id: str, question: str, ui_language: str) -> AssistOut:
+    """Answer a reviewer's question about one block and propose wordings. Read-only: nothing is applied to the
+    Document here; the reviewer copies a suggestion into the editor and saves it as their own edit."""
+    blocks = [b for b in doc.blocks if b.type != BlockType.page_break]
+    i = next((k for k, b in enumerate(blocks) if b.id == block_id), None)
+    if i is None:
+        raise ValueError(f"no block {block_id}")
+    b = blocks[i]
+    payload = {
+        "block": _pair_payload(b),
+        "before": [_pair_payload(x) for x in blocks[max(0, i - 2):i]],
+        "after": [_pair_payload(x) for x in blocks[i + 1:i + 3]],
+        "open_flags": [{"severity": f.severity.value if hasattr(f.severity, "value") else f.severity, "code": f.code,
+                        "message": f.message} for f in b.flags if not f.resolved],
+    }
+    res = call_agent(ctx, "assistant", AssistOut, payload, extra_vars={"ui_language": ui_language},
+                     instruction=f"Translator's question about block {b.id}: {question.strip()}")
+    out = res.data
+    out.suggestions = [x for x in out.suggestions if x.text.strip()][:3]
+    return out

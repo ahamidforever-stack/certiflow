@@ -143,6 +143,11 @@ class RerunIn(BaseModel):
     instruction: str = ""
 
 
+class AssistIn(BaseModel):
+    block: str
+    question: str
+
+
 def create_app(cfg: WebConfig | None = None) -> FastAPI:
     cfg = cfg or get_config()
     set_config(cfg)
@@ -1282,6 +1287,42 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
             s.commit()
         runner.submit_rerun(job_id, doc_key, body.agent, body.blocks, body.instruction, u.username)
         return {"ok": True}
+
+    @app.post("/api/jobs/{job_id}/documents/{doc_key}/assist")
+    def assist(job_id: str, doc_key: str, body: AssistIn, u: User = Depends(current_user), _=Depends(csrf)):
+        """Ask the review helper about one block: an answer and up to three wordings to copy by hand.
+
+        Read-only (the document is not changed). One model call; its cost is added to the job."""
+        from ..pipeline.job import Job
+        from .usage import sync_job
+        q = body.question.strip()
+        if not q:
+            raise HTTPException(422, "ask a question")
+        if len(q) > 1000:
+            raise HTTPException(422, "question is too long (1000 characters at most)")
+        if not re.fullmatch(r"d\d{2}", doc_key) or not re.fullmatch(r"[\w.-]{1,40}", body.block):
+            raise HTTPException(404, "no such block")
+        with Session() as s:
+            row = _job_for(s, job_id, u)
+            if row.status != "waiting_review":
+                raise HTTPException(409, f"job is {row.status}, not waiting for review")
+            if doc_key not in {d.doc_key for d in row.documents}:
+                raise HTTPException(404, "no such document")
+            target = row.target_language
+        jd = runner.job_dir(cfg, job_id)
+        try:
+            out = Job(jd, runner.llm_client(cfg, target)).assist(doc_key, body.block, q, u.ui_language or "en", u.username)
+        except ValueError as e:
+            raise HTTPException(404, str(e))
+        except Exception as e:  # noqa: BLE001 - model or network trouble; details stay in the server log
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(502, f"The helper could not answer: {type(e).__name__}")
+        with Session() as s:
+            row = s.get(JobRow, job_id)
+            row.cost_usd = sync_job(s, job_id, jd)
+            s.commit()
+        return out
 
     @app.get("/api/jobs/{job_id}/documents/{doc_key}/preview.pdf")
     def preview(job_id: str, doc_key: str, u: User = Depends(current_user)):

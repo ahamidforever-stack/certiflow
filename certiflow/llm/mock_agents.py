@@ -114,5 +114,12 @@ def make_mock(target: str, corrupt_once: set[str] | None = None, qa_issues: list
                                "column_widths": None, "page_break_before": False}
                               for b in _payload(req)["blocks"]]}
 
-    return MockClient(handlers={"intake": intake, "intake_zoom": zoom, "glossary": glossary, "translator": translator,
+    def assistant(req):
+        # Labelled mock: one pseudo wording of the block so the editor's "use this" path can be exercised offline.
+        blk = _payload(req)["block"]
+        text = pseudo_translate(blk.get("source") or "", target) if blk.get("source") else ""
+        sugg = [{"text": text, "note": "Mock suggestion (test mode, not a real translation)."}] if text else []
+        return {"answer": "Mock answer (test mode): the helper would answer the question here.", "suggestions": sugg}
+
+    return MockClient(handlers={"assistant": assistant, "intake": intake, "intake_zoom": zoom, "glossary": glossary, "translator": translator,
                                 "proofreader": proofreader, "qa": qa, "formatter": formatter})

@@ -26,7 +26,7 @@ export function ShortcutsDialog({ open, onOpenChange }: { open: boolean; onOpenC
   const { t } = useI18n();
   const rows: [string[], string][] = [
     [["J"], "sc_next"], [["K"], "sc_prev"], [["A"], "sc_accept"], [["R"], "sc_reject"],
-    [["Ctrl", "S"], "sc_save"], [["Ctrl", "↵"], "sc_saveBlock"], [["Esc"], "sc_leave"], [["["], "sc_checklist"], [["?"], "sc_help"],
+    [["Ctrl", "S"], "sc_save"], [["Ctrl", "↵"], "sc_saveBlock"], [["H"], "sc_helper"], [["Esc"], "sc_leave"], [["["], "sc_checklist"], [["?"], "sc_help"],
   ];
   return (
     <Shell open={open} onOpenChange={onOpenChange} title={t("edShortcuts")}>

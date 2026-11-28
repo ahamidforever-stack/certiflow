@@ -24,6 +24,7 @@ export interface BlockRowProps {
   onHover: (on: boolean) => void; onSelect: () => void; onPick: (on: boolean) => void;
   onDraft: (p: Draft) => void; onSave: () => void; onCancel: () => void;
   onDecide: (i: number, d: "accept" | "reject") => void; onResolve: (i: number, comment: string) => void;
+  onAsk?: () => void;
 }
 
 function BlockRowImpl(p: BlockRowProps) {
@@ -53,6 +54,12 @@ function BlockRowImpl(p: BlockRowProps) {
         {b.multilingual_duplicate && <span className="rounded bg-slate-100 px-1.5">{t("rvDuplicate")}</span>}
         {busy && <span className="flex items-center gap-1 text-brand-500"><Sparkles className="h-3 w-3 animate-pulse" />{t("edAgentWorking")}</span>}
         <span className="ms-auto flex items-center gap-1">
+          {p.onAsk && (
+            <button onClick={p.onAsk} className={cn("flex items-center gap-1 rounded-full px-1.5 py-0.5 text-brand-500 transition hover:bg-brand-50",
+              selected ? "opacity-100" : "opacity-0 focus:opacity-100 group-hover:opacity-100")}>
+              <Sparkles className="h-3 w-3" />{t("hpAskAi")}
+            </button>
+          )}
           {draft && <span className="rounded-full bg-seal-100 px-1.5 font-medium text-seal-700">{t("edEditedMark")}</span>}
           {flags.map(({ f, i }) => (
             <span key={i} className={cn("rounded-full px-1.5 font-medium", f.severity === "blocker" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800")}>{t(`sev_${f.severity}`)}</span>

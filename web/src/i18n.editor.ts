@@ -1,5 +1,12 @@
 // Strings of the Phase 6 review editor (workspace layout, checklist panel, shortcuts). Merged in i18n.tsx.
 export const editorEn = {
+  hpTab: "AI helper", hpPick: "Select a block in the translation, then ask about it.", hpAbout: "About {id}",
+  hpAsk: "Ask about this block…", hpSend: "Ask", hpThinking: "Thinking…", hpUse: "Use this", hpCopy: "Copy", hpCopied: "Copied",
+  hpUsed: "Put in the editor. Check it, then save.", hpCost: "Each question is one model call (small cost). The helper only suggests; you decide.",
+  hpReadOnly: "The helper works while the job is waiting for review.", hpError: "The helper could not answer. Try again.",
+  hpQ1: "Suggest better wordings", hpQ2: "Check names and terms", hpQ3: "Is the meaning the same as the source?", hpQ4: "Explain the source text",
+  hpAskAi: "Ask AI", hpTableNote: "Table: copy the wording into the right cell.", sc_helper: "Open the AI helper for the current block",
+  au_assist: "Asked the AI helper", agent_assistant: "AI helper",
   edChecklist: "Checklist", edReadiness: "Before approval", edReadyN: "{n} of {total} done",
   edStepBlockers: "Resolve blocking issues", edStepChanges: "Decide on agent changes", edStepSaved: "Save your edits",
   edAllClear: "Everything is checked. Approve and stamp on the job page.", edGoApprove: "Go to approval",
@@ -22,6 +29,13 @@ export const editorEn = {
 };
 
 export const editorAr: typeof editorEn = {
+  hpTab: "المساعد الذكي", hpPick: "اختر فقرة من الترجمة ثم اسأل عنها.", hpAbout: "عن {id}",
+  hpAsk: "اسأل عن هذه الفقرة…", hpSend: "اسأل", hpThinking: "يفكّر…", hpUse: "استخدم هذا", hpCopy: "نسخ", hpCopied: "تم النسخ",
+  hpUsed: "وُضع في المحرر. راجعه ثم احفظه.", hpCost: "كل سؤال استدعاء واحد للنموذج (تكلفة بسيطة). المساعد يقترح فقط، والقرار لك.",
+  hpReadOnly: "يعمل المساعد عندما تكون المهمة بانتظار المراجعة.", hpError: "تعذّر على المساعد الإجابة. حاول مرة أخرى.",
+  hpQ1: "اقترح صياغات أفضل", hpQ2: "تحقّق من الأسماء والمصطلحات", hpQ3: "هل المعنى مطابق للأصل؟", hpQ4: "اشرح النص الأصلي",
+  hpAskAi: "اسأل المساعد", hpTableNote: "جدول: انسخ الصياغة إلى الخلية المناسبة.", sc_helper: "فتح المساعد الذكي للفقرة الحالية",
+  au_assist: "سأل المساعد الذكي", agent_assistant: "المساعد الذكي",
   edChecklist: "قائمة التحقق", edReadiness: "قبل الاعتماد", edReadyN: "اكتمل {n} من {total}",
   edStepBlockers: "حلّ العوائق", edStepChanges: "البتّ في التعديلات الآلية", edStepSaved: "حفظ تعديلاتك",
   edAllClear: "تم التحقق من كل شيء. يمكنك الاعتماد والختم في صفحة المهمة.", edGoApprove: "الانتقال إلى الاعتماد",

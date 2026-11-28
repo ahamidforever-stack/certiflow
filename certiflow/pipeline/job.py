@@ -287,6 +287,16 @@ class Job:
         self.event("rerun_done", document=doc_id, agent=agent, blocks=sorted(only), changes=changes, by=by)
         return changes
 
+    def assist(self, doc_id: str, block_id: str, question: str, ui_language: str, by: str = "") -> dict:
+        """Ask the review helper about one block. Read-only: the document is not changed and not saved; the
+        audit gets the model call and an ``assist`` event (no question or answer text in the event)."""
+        from ..profiles import get_profile
+        doc = self.review_doc(doc_id)
+        ctx = self.ctx(doc.source_language, doc.target_language, doc_id)
+        out = steps.assist(ctx, doc, block_id, question, get_profile(ui_language).display_name)
+        self.event("assist", document=doc_id, block=block_id, suggestions=len(out.suggestions), by=by)
+        return out.model_dump()
+
     def build_preview(self, doc_id: str) -> Path:
         """A watermarked PDF of the document as it would be released, with the chosen stamp.
 

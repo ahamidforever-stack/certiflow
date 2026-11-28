@@ -27,9 +27,6 @@ export default function Checklist({ jobId, blocks, editable, dirtyIds, selected,
 
   return (
     <aside className="flex h-full min-h-0 flex-col bg-sidebar" aria-label={t("edChecklist")}>
-      <header className="flex h-11 shrink-0 items-center border-b border-slate-200/80 px-4">
-        <h2 className="text-sm font-medium text-slate-700">{t("edChecklist")}</h2>
-      </header>
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3">
         {/* readiness */}
         {editable && (

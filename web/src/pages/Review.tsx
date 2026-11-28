@@ -11,6 +11,7 @@ import { progressOf } from "../lib/jobs";
 import { BlockRow } from "../components/review/BlockRow";
 import SourcePane from "../components/review/SourcePane";
 import Checklist from "../components/review/Checklist";
+import Helper, { type Turn } from "../components/review/Helper";
 import { RerunDialog, ShortcutsDialog } from "../components/review/Dialogs";
 import { isTyping, needsLook, openFlags, pendingChanges, type Draft, type Filter, type SaveState } from "../components/review/helpers";
 
@@ -53,6 +54,9 @@ export default function Review() {
   const [view, setView] = useState<"src" | "tgt" | "list">("tgt");   // phones: one pane at a time
   const [help, setHelp] = useState(false);
   const [rerunOpen, setRerunOpen] = useState(false);
+  const [sideTab, setSideTab] = useState<"list" | "helper">("list");
+  const [turns, setTurnsState] = useState<Record<string, Turn[]>>({});   // helper conversations per block (this visit only)
+  const helperInput = useRef<HTMLTextAreaElement>(null);
   const srcRef = useRef<HTMLDivElement>(null);
   const tgtRef = useRef<HTMLDivElement>(null);
   const quietUntil = useRef(0);   // pause "follow" while we scroll on purpose
@@ -64,7 +68,7 @@ export default function Review() {
       .then(([j, m, l]) => { setJob(j); setModel(m.model); setLangs(l); })
       .catch((e) => setLoadErr(e.message));
   }, [id, doc]);
-  useEffect(() => { setDrafts({}); setSave("saved"); setSelected(null); load(); }, [load]);
+  useEffect(() => { setDrafts({}); setSave("saved"); setSelected(null); setTurnsState({}); load(); }, [load]);
 
   const dirty = Object.keys(drafts).length > 0;
   useEffect(() => {
@@ -191,7 +195,8 @@ export default function Review() {
       const b = blocks.find((x) => x.id === selected);
       const c = b && pendingChanges(b)[0];
       if (b && c) { e.preventDefault(); decide(b, c.i, k === "a" ? "accept" : "reject"); }
-    } else if (e.key === "[") { e.preventDefault(); toggleList(); }
+    } else if (k === "h" && selected) { e.preventDefault(); openHelper(selected); }
+    else if (e.key === "[") { e.preventDefault(); toggleList(); }
     else if (e.key === "?") { e.preventDefault(); setHelp(true); }
   };
   useEffect(() => {
@@ -200,6 +205,12 @@ export default function Review() {
     return () => window.removeEventListener("keydown", h);
   }, []);
 
+  const openHelper = (bid: string) => {
+    setSelected(bid); setSideTab("helper");
+    if (wide && !showList) { setShowList(true); writeBool("cf_rv_list", true); }
+    if (!wide) setView("list");
+    window.setTimeout(() => helperInput.current?.focus(), 80);
+  };
   const toggleList = () => setShowList((v) => { writeBool("cf_rv_list", !v); return !v; });
   const setFollowP = (v: boolean) => { setFollow(v); writeBool("cf_rv_follow", v); };
   const leave = (to: string) => { if (!dirty || window.confirm(t("rvLeaveConfirm"))) nav(to); };
@@ -216,7 +227,27 @@ export default function Review() {
   const counts = { issues: blocks.filter((b) => openFlags(b).length).length, changes: blocks.filter((b) => pendingChanges(b).length).length, edited: Object.keys(drafts).length };
   const dirtyIds = Object.keys(drafts);
 
-  const checklist = <Checklist jobId={id} blocks={blocks} editable={!!editable} dirtyIds={dirtyIds} selected={selected} onJump={(x) => focus(x, "list")} />;
+  const selBlock = blocks.find((x) => x.id === selected) ?? null;
+  const checklist = (
+    <div className="flex h-full min-h-0 flex-col bg-sidebar">
+      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-slate-200/80 px-2" role="tablist">
+        {([["list", "edChecklist", <ListChecks key="l" className="h-3.5 w-3.5" />], ["helper", "hpTab", <Sparkles key="h" className="h-3.5 w-3.5" />]] as const).map(([k, label, icon]) => (
+          <button key={k} role="tab" aria-selected={sideTab === k} onClick={() => setSideTab(k)}
+            className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition", sideTab === k ? "bg-surface font-medium text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-800")}>
+            {icon}{t(label)}
+          </button>
+        ))}
+      </div>
+      <div className="min-h-0 flex-1">
+        {sideTab === "list"
+          ? <Checklist jobId={id} blocks={blocks} editable={!!editable} dirtyIds={dirtyIds} selected={selected} onJump={(x) => focus(x, "list")} />
+          : <Helper ref={helperInput} jobId={id} doc={doc} block={selBlock} tDir={tDir} tLang={model.target_language} editable={!!editable}
+              turns={selected ? turns[selected] ?? [] : []}
+              setTurns={(bid, fn) => setTurnsState((m) => ({ ...m, [bid]: fn(m[bid] ?? []) }))}
+              onUse={(text) => { if (selBlock) { setDraft(selBlock, { text }); focus(selBlock.id, "list"); } }} />}
+      </div>
+    </div>
+  );
   const source = (
     <SourcePane ref={srcRef} jobId={id} doc={doc} lang={model.source_language} blocks={blocks} pages={pages}
       selected={selected} hovered={hovered} follow={follow} onFollow={setFollowP} onHover={setHovered} onPick={(x) => focus(x, "src")} />
@@ -267,7 +298,8 @@ export default function Review() {
                   onPick={(on) => setPicked((x) => { const y = new Set(x); if (on) y.add(b.id); else y.delete(b.id); return y; })}
                   onDraft={(p) => setDraft(b, p)} onSave={() => saveBlock(b)}
                   onCancel={() => setDrafts((x) => { const y = { ...x }; delete y[b.id]; if (!Object.keys(y).length) setSave("saved"); return y; })}
-                  onDecide={(ci, d) => decide(b, ci, d)} onResolve={(fi, c) => resolve(b, fi, c)} />
+                  onDecide={(ci, d) => decide(b, ci, d)} onResolve={(fi, c) => resolve(b, fi, c)}
+                  onAsk={editable ? () => openHelper(b.id) : undefined} />
               </div>
             );
           })}
