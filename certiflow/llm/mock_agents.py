@@ -75,6 +75,9 @@ def make_mock(target: str, corrupt_once: set[str] | None = None, qa_issues: list
         blocks.append(dict(type="note", level=None, label=None, text="", rows=None, header_row=False, note_kind="stamp",
                            note_description="oval stamp, red ink", unreadable_reason=None, confidence=0.9,
                            continues_previous_page=False, multilingual_duplicate=False, repeated_on_every_page=False))
+        step = 800 // max(len(blocks), 1)               # stacked boxes down the page (positions for the editor)
+        for i, b in enumerate(blocks):
+            b["bbox"] = [80, 100 + i * step, 920, 100 + (i + 1) * step - 10]
         return {"languages": ["xx"], "rotation_needed": 0, "has_stamp": True, "has_signature": False,
                 "has_handwriting": False, "has_table": bool(kv), "removed_artifacts": [], "blocks": blocks,
                 "uncertain_regions": []}

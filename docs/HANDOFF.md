@@ -7,7 +7,10 @@ Read this first in a new session.
 - **Phase 2** (agents, prompts, LangGraph pipeline, QA loop, audit, golden harness) is done and tested offline: 57 tests pass.
 - The golden set (3 approved EN>AR translations from the office) rebuilds exactly at Word level. PDF page counts match
   when Sakkal Majalla is installed. The header, footer and seal positions match the approved PDFs on every page.
-- **Not yet done:** the first real run with the Claude API. Phase 3 (web app) has not started.
+- **Phase 3** (web app) is on branch `claude/phase3-web-app`: FastAPI + React, Celery/Redis, PostgreSQL, Docker. See README "Web app".
+- **Phase 4** (review editor, agent re-run, watermarked preview, approval gate, audit log) is on branch
+  `claude/phase4-review-editor`. See `docs/DEVELOPER_GUIDE.md` §7. Open item: run `golden score` with the
+  `intake/v2` prompt (block positions) before switching it on in `config/agents.json` (real API, costs money).
 
 ## Office files (confidential, never committed)
 The user uploads `certiflow_office_assets.zip`. From the repository root:

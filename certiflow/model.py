@@ -101,6 +101,9 @@ class Flag(_Base):
     message: str = ""
     agent: Optional[str] = None
     resolved: bool = False
+    resolved_by: Optional[str] = None       # user id of the reviewer who resolved it
+    resolved_at: Optional[datetime] = None
+    resolution: Optional[str] = None        # reviewer's comment (required to resolve a blocker)
 
 
 class HistoryEntry(_Base):
@@ -110,6 +113,8 @@ class HistoryEntry(_Base):
     old: Optional[str] = None
     new: Optional[str] = None
     reason: str = ""
+    review: Optional[Literal["accepted", "rejected"]] = None   # reviewer decision on an agent change
+    reviewed_by: Optional[str] = None
 
 
 class TableCell(_Base):
@@ -148,6 +153,7 @@ class Block(_Base):
     id: str
     type: BlockType
     source_page: Optional[int] = None       # 1-based page in the source document
+    bbox: Optional[list[float]] = None      # position on the source page: [x0, y0, x1, y1], 0-1000 grid
     source_text: str = ""
     translated_text: str = ""
     runs: Optional[list[InlineRun]] = None  # if absent, the Builder segments translated_text

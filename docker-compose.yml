@@ -1,0 +1,55 @@
+# CertiFlow production stack.  cp .env.example .env  (fill it in), then:  docker compose up -d --build
+# ./office holds the office assets (assets/shoreline/..., assets/fonts/...). Make them readable: chmod -R a+rX office
+# Users:  docker compose exec api certiflow web create-user amir.gomaa --role certified_translator --name "Amir Gomaa"
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: certiflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: certiflow
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U certiflow"], interval: 5s, retries: 20 }
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+
+  api:
+    image: certiflow:latest
+    build: .
+    command: ["web"]
+    env_file: .env
+    environment: &common
+      CERTIFLOW_DATABASE_URL: postgresql+psycopg://certiflow:${POSTGRES_PASSWORD}@postgres/certiflow
+      CERTIFLOW_CHECKPOINT_DSN: postgresql://certiflow:${POSTGRES_PASSWORD}@postgres/certiflow
+      CERTIFLOW_REDIS_URL: redis://redis:6379/0
+      CERTIFLOW_QUEUE: celery
+      CERTIFLOW_LIBRARY: /office/assets/shoreline/library.json
+    volumes: &vols
+      - data:/data
+      - ./office:/office:ro          # office assets (template, stamps, signature) - never in git
+      - ./office/assets/fonts:/fonts:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    ports: ["127.0.0.1:8000:8000"]   # put a TLS reverse proxy (Caddy/nginx) in front
+    restart: unless-stopped
+
+  worker:
+    image: certiflow:latest
+    build: .
+    command: ["worker"]
+    env_file: .env
+    environment: *common
+    volumes: *vols
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  data:

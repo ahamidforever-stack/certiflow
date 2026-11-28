@@ -86,7 +86,7 @@ Full JSON Schema: `certiflow schema`.
 | Intake | claude-sonnet-5-5 | page image (max 1600 px) + Tesseract draft at 300 dpi + low-confidence lines | `IntakePageOut` | blocks, page inventory, joins across pages, document-end notes |
 | Intake zoom | claude-sonnet-5-5 | 2x crop of an uncertain region | `ZoomOut` | replaces the reading if more confident; flags covered/illegible |
 | Glossary | claude-opus-5-5 | all source text of the batch | `GlossaryOut` | proposed list, human confirms (graph interrupt) |
-| Translator | claude-opus-5-5, effort high | chunks of 40 blocks + 3 blocks of context + fix requests | `TranslatorOut` | text, table cells (shape checked), labels, history |
+| Translator | claude-opus-5-5, effort high | units of ≤40 blocks / ≤20 pages + 3 blocks of context + fix requests | `TranslatorOut` | text, table cells (shape checked), labels, history |
 | Proofreader | claude-opus-5-5 | source + translation | `ProofreaderOut` (tracked changes with reasons) | history entries per change |
 | QA | claude-opus-5-5 | source + translation + automated findings | `QAOut` | flags; blockers loop back (max 2) |
 | Formatter | claude-sonnet-5-5 | block types + excerpts | `FormatterOut` | type/level/alignment/column widths, page break before an apostille |
@@ -119,3 +119,44 @@ Departures from the brief (Phase 2):
 - **Batch API ("bulk, lower cost"):** comes with the queue in Phase 3.
 - **Langfuse tracing:** comes in Phase 5. Our own audit log is complete.
 - **Intake zoom:** uses a plain Messages API call, not the Claude Agent SDK (see "Changes to the brief").
+
+## Phase 3: web app
+
+```
+browser (React/TS/Tailwind, EN/AR + RTL)
+   │  HttpOnly signed session cookie + X-CertiFlow CSRF header; SSE for live progress
+FastAPI (certiflow/web/app.py) ──► PostgreSQL (users, jobs, documents, events; Alembic migrations)
+   │ submit(job_id, resume)
+   ▼
+Redis ──► Celery workers (certiflow/web/tasks.py) ──► pipeline Job.run (LangGraph, PostgreSQL checkpointer)
+                                                     └─ job files on the shared /data volume
+```
+
+**Runner.** `runner.advance(job_id, resume)` moves a job to its next human gate. It is the only unit of work, and
+both runners use it:
+- `thread` for development and tests
+- `celery` for production
+
+**Job statuses.** `queued → running → waiting_glossary → running → waiting_review → releasing → released`, or
+`failed` (with retry).
+
+**Access rules.**
+- Only certified translators and admins create jobs; a reviewer has no stamp or signature.
+- The signing translator is the creator.
+- Only the signer or an admin approves.
+- Jobs are visible to their creator and to admins only.
+- Release files are listed and downloadable only after a verified release.
+
+**Privacy.**
+- Progress events (SSE) carry stage, agent, cost and timing, never document text.
+- The Anthropic key stays on the server (`CERTIFLOW_ANTHROPIC_API_KEY`).
+
+**Uploads.** PDF, images and Word. Word files are converted to PDF with LibreOffice before intake. Per-file size
+limit: `CERTIFLOW_MAX_UPLOAD_MB`.
+
+**Not yet in Phase 3** (Phases 4 and 5):
+- the side-by-side review editor (the preview is read-only)
+- admin screens (users are created with the CLI)
+- the cost dashboard, retention and auto-deletion, encryption at rest for files, MinIO/S3 storage, backups
+- the Batch API "bulk, lower cost" option
+- glossary per language pair inside mixed-pair batches: one glossary per job for now

@@ -3,7 +3,14 @@
 Certified translation platform: source document → agent pipeline → human approval → signed and stamped Word +
 one integrated PDF (translation pages, then the stamped source pages).
 
-Status: **Phase 2 (agents and language profiles, CLI)**. See `docs/ARCHITECTURE.md` and `docs/PROMPT_VERSIONING.md`.
+Status: **Phase 3 (web app)**.
+
+**Start here:**
+- `docs/SPEC.md`: technical specification and handover (status against the brief, architecture, API, security,
+  deployment, roadmap)
+- `docs/DEVELOPER_GUIDE.md`: setup, running, tests, code map, conventions
+- `docs/BRIEF.md`: the original product requirements
+- More: `docs/ARCHITECTURE.md`, `docs/PROMPT_VERSIONING.md`, `docs/openapi.json`, `docs/document.schema.json`
 
 ## Setup
 
@@ -11,6 +18,28 @@ Status: **Phase 2 (agents and language profiles, CLI)**. See `docs/ARCHITECTURE.
 pip install -e .[dev]
 # system: LibreOffice, poppler-utils, tesseract + language packs, fonts (Amiri, Noto, Liberation) - see requirements-system.txt
 ```
+
+## Web app
+
+```bash
+pip install -e ".[web,dev]" && (cd web && npm ci && npm run build)
+certiflow web init-db
+certiflow web create-user amir.gomaa --role certified_translator --name "Amir Gomaa"   # prompts for a password
+CERTIFLOW_LIBRARY=assets/shoreline/library.json certiflow web serve --port 8000
+```
+
+Open http://localhost:8000. Development defaults: SQLite in `data/` and an in-process job runner.
+
+**Production:** `docker compose up -d --build` runs PostgreSQL, Redis, the API and Celery workers. It uses the
+PostgreSQL LangGraph checkpointer. See `docker-compose.yml` and `.env.example`; office assets are mounted from `./office`.
+
+The screens are: sign-in, the jobs list, new job, and the job page.
+- **New job:** drag-and-drop upload, language pair with swap and recent pairs, a per-document language override, and
+  the stamp selector with stamp images. It is required and has no default.
+- **Job page:** live progress over server-sent events, the glossary confirmation, a review preview, approval by the
+  signing certified translator, downloads, and cost per step.
+
+The interface is in English and Arabic, with full right-to-left layout.
 
 ## Translate (agent pipeline)
 

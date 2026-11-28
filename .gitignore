@@ -4,6 +4,13 @@ __pycache__/
 out/
 *.egg-info/
 .env
+.env.dev
+.venv/
 # client assets: confidential, never committed (stamps, signatures, templates, source documents)
 inputs/
 assets/
+data/
+web/node_modules/
+web/dist/
+office/
+*.tsbuildinfo

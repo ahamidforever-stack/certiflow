@@ -79,23 +79,69 @@ class ResolvedPair(BaseModel):
     conventions: str
 
 
-@lru_cache
+# Admin changes from the web app live in a separate file (data/settings/languages.json) laid over the profile
+# files here, so the git-tracked data is never written by the app:
+#   {"profiles": {"ar": {"body_size_pt": 13, ...}}, "pairs": [{"source": "en", "target": "ar", ...}]}
+# A pair in the override replaces the pair with the same source and target.
+_override: Optional[Path] = None
+
+
+def set_override(path: Optional[Path]) -> None:
+    global _override
+    _override = Path(path) if path else None
+
+
+def override_path() -> Optional[Path]:
+    return _override
+
+
+def read_override() -> dict:
+    return json.loads(_override.read_text("utf-8")) if _override is not None and _override.exists() else {}
+
+
+def _stamp() -> tuple[str, int]:
+    ov = _override
+    return (str(ov), ov.stat().st_mtime_ns) if ov is not None and ov.exists() else ("", 0)
+
+
+def base_profile(code: str) -> dict:
+    return json.loads((DATA_DIR / f"{code}.json").read_text(encoding="utf-8"))
+
+
+def base_pairs() -> list[dict]:
+    f = DATA_DIR / "pairs.json"
+    return json.loads(f.read_text("utf-8")) if f.exists() else []
+
+
 def _load_all() -> dict[str, LanguageProfile]:
+    return _profiles(*_stamp())
+
+
+def _load_pairs() -> dict[tuple[str, str], PairSettings]:
+    return _pairs(*_stamp())
+
+
+@lru_cache(maxsize=8)
+def _profiles(override: str, _mtime: int) -> dict[str, LanguageProfile]:
+    ov = (json.loads(Path(override).read_text("utf-8")).get("profiles") or {}) if override else {}
     out = {}
     for p in sorted(DATA_DIR.glob("*.json")):
         if p.name == "pairs.json":
             continue
-        prof = LanguageProfile.model_validate_json(p.read_text(encoding="utf-8"))
+        data = json.loads(p.read_text(encoding="utf-8"))
+        data.update(ov.get(data["code"], {}))
+        prof = LanguageProfile.model_validate(data)
         out[prof.code] = prof
     return out
 
 
-@lru_cache
-def _load_pairs() -> dict[tuple[str, str], PairSettings]:
-    f = DATA_DIR / "pairs.json"
-    if not f.exists():
-        return {}
-    return {(p.source, p.target): p for p in (PairSettings.model_validate(x) for x in json.loads(f.read_text("utf-8")))}
+@lru_cache(maxsize=8)
+def _pairs(override: str, _mtime: int) -> dict[tuple[str, str], PairSettings]:
+    items = {(x["source"], x["target"]): x for x in base_pairs()}
+    if override:
+        for x in json.loads(Path(override).read_text("utf-8")).get("pairs") or []:
+            items[(x["source"], x["target"])] = x
+    return {k: PairSettings.model_validate(v) for k, v in items.items()}
 
 
 def get_profile(code: str) -> LanguageProfile:

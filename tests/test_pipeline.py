@@ -196,3 +196,40 @@ def test_anthropic_client_request_shape(monkeypatch):
     assert k["system"][0]["cache_control"] == {"type": "ephemeral"}
     assert k["fallbacks"] == "default" and k["betas"] == ["server-side-fallback-2026-07-01"]
     assert sent[1]["messages"][1]["role"] == "assistant" and sent[1]["messages"][1]["content"][0].text.startswith("{")
+
+
+def test_units_split_long_documents_by_blocks_and_pages():
+    """A 300-page document is split into ordered units of at most 40 blocks and 20 pages, covering every block once."""
+    from certiflow.agents.steps import units
+    from certiflow.model import Block
+    blocks = [Block(id=f"b{i}", type="paragraph", source_page=1 + i // 2, source_text="x") for i in range(600)]  # 2 blocks/page
+    us = list(units(blocks, max_blocks=40, max_pages=20))
+    assert [b.id for u in us for b in u] == [b.id for b in blocks]            # nothing lost, order kept
+    assert all(len(u) <= 40 for u in us)
+    assert all(u[-1].source_page - u[0].source_page + 1 <= 20 for u in us)
+    sparse = [Block(id=f"s{i}", type="paragraph", source_page=1 + i, source_text="x") for i in range(45)]  # 1 block/page
+    su = list(units(sparse, max_blocks=40, max_pages=20))
+    assert [len(u) for u in su] == [20, 20, 5]                                # page limit wins on sparse documents
+
+
+@needs_tools
+def test_long_document_is_translated_in_units_and_combined(lib_dir, tmp_path):
+    """A 24-page scan is translated in several units but released as one Word file and one PDF."""
+    pages = [[f"PAGE {p} (SAMPLE)"] + [f"Clause {p}.{k}: The parties agree to section {p}{k}." for k in range(1, 4)]
+             for p in range(1, 25)]
+    src = samples.make_source_pdf(tmp_path / "long.pdf", pages=pages, landscape_pages=())
+    from certiflow.settings import load
+    st = load().model_copy(deep=True)
+    st.pipeline.chunk_max_pages = 5
+    mock = make_mock("ar")
+    jd = Job.create(tmp_path / "job", [src], "en", "ar", JobSpec(stamp="certified", user_id="translator1"),
+                    lib_dir / "library.json")
+    job = Job(jd, mock, settings=st)
+    job.run()
+    job.run(resume={"by": "translator1"})
+    translator_calls = [c for c in mock.calls if c.agent == "translator"]
+    assert len(translator_calls) >= 5                                         # 24 pages / 5 pages per unit
+    r = job.run(resume={"approved_by": "translator1"})
+    assert r["stage"] == "released" and len([p for p in r["released"] if p.endswith(".pdf")]) == 1
+    doc = job.load_doc("d01", "formatted")
+    assert {b.source_page for b in doc.blocks} >= set(range(1, 25))          # every page made it into the one document
