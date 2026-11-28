@@ -107,7 +107,7 @@ function BlockRowImpl(p: BlockRowProps) {
       {draft && (
         <div className="mt-2 flex items-center justify-end gap-2 px-2 animate-fade-in">
           <button className="btn-quiet btn-sm" onClick={p.onCancel}>{t("rvCancel")}</button>
-          <button className="btn-primary btn-sm" onClick={p.onSave}>{t("rvSave")}<kbd className="kbd border-white/30 bg-white/10 text-white/80" dir="ltr">Ctrl ↵</kbd></button>
+          <button className="btn-primary btn-sm" onClick={p.onSave}>{t("rvSave")}<kbd aria-hidden className="kbd border-white/30 bg-white/10 text-white/80" dir="ltr">Ctrl ↵</kbd></button>
         </div>
       )}
 
@@ -129,9 +129,9 @@ function BlockRowImpl(p: BlockRowProps) {
           {editable && (
             <div className="flex gap-1.5 px-3 pb-2.5">
               <button className="btn-ghost btn-sm border-emerald-200 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50" onClick={() => p.onDecide(i, "accept")}>
-                <Check className="h-3.5 w-3.5" />{t("rvAccept")}<kbd className="kbd">A</kbd></button>
+                <Check className="h-3.5 w-3.5" />{t("rvAccept")}<kbd aria-hidden className="kbd">A</kbd></button>
               <button className="btn-ghost btn-sm text-red-700 hover:border-red-200 hover:bg-red-50" onClick={() => p.onDecide(i, "reject")}>
-                <X className="h-3.5 w-3.5" />{t("rvReject")}<kbd className="kbd">R</kbd></button>
+                <X className="h-3.5 w-3.5" />{t("rvReject")}<kbd aria-hidden className="kbd">R</kbd></button>
             </div>
           )}
         </div>

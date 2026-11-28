@@ -98,10 +98,10 @@ export default function NewJob() {
     } catch (e) { setError((e as Error).message); setBusy(false); }
   };
 
-  const langSelect = (value: string, set: (v: string) => void, label: string, withAuto = false) => (
+  const langSelect = (id: string, value: string, set: (v: string) => void, label: string, withAuto = false) => (
     <label className="relative flex min-w-0 flex-1 items-center">
       <span className="sr-only">{label}</span>
-      <select className="w-full appearance-none truncate rounded-lg border border-slate-200 bg-surface py-2 pe-8 ps-3 text-sm text-slate-900 transition hover:border-slate-300 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/10"
+      <select id={id} className="w-full appearance-none truncate rounded-lg border border-slate-200 bg-surface py-2 pe-8 ps-3 text-sm text-slate-900 transition hover:border-slate-300 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/10"
         value={value} onChange={(e) => set(e.target.value)}>
         {withAuto && <option value="auto">{t("autoDetect")}</option>}
         {langs.map((l) => <option key={l.code} value={l.code}>{name(l.code)}</option>)}
@@ -189,10 +189,10 @@ export default function NewJob() {
           <div>
             <div className="mb-1.5 flex items-center gap-2 text-xs font-medium text-slate-600"><Languages className="h-3.5 w-3.5" />{t("njLanguages")}</div>
             <div className="flex items-center gap-2">
-              {langSelect(source, setSource, t("from"), true)}
+              {langSelect("src", source, setSource, t("from"), true)}
               <button className="icon-btn h-9 w-9 shrink-0 border border-slate-200 bg-surface" title={t("swap")} aria-label={t("swap")} onClick={swap} disabled={source === "auto"}>
                 <ArrowLeftRight className="h-4 w-4" /></button>
-              {langSelect(target, setTarget, t("to"))}
+              {langSelect("tgt", target, setTarget, t("to"))}
             </div>
             {recent.length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
