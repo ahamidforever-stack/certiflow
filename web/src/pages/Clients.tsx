@@ -51,11 +51,11 @@ export default function Clients() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">{t("clTitle")}</h1>
+        <h1 className="font-serif text-xl font-medium text-slate-900">{t("clTitle")}</h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">{t("clHint")}</p>
       </div>
       {err && <div role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{err} <button className="ms-2 underline" onClick={load}>{t("retry")}</button></div>}
-      {!data && !err && <div className="card p-5 text-sm text-slate-500">…</div>}
+      {!data && !err && <div className="space-y-2" aria-hidden>{[0, 1, 2].map((i) => <div key={i} className="skeleton h-14 rounded-xl" />)}</div>}
       {data && (
         <>
           {data.clients.length === 0 ? <div className="card p-5 text-sm text-slate-500">{t("clNoClients")}</div> : (

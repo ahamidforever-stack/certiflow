@@ -217,6 +217,7 @@ profile's body size. The Shoreline defaults, measured from the office's approved
 | Proofreader | claude-opus-5-5 | source + translation | `ProofreaderOut` (tracked changes with category and reason) | one history entry per change |
 | QA | claude-opus-5-5 | source + translation + automated findings | `QAOut` (blocker / major / minor) | flags on blocks |
 | Formatter | claude-sonnet-5-5 | types + excerpts | `FormatterOut` | type/level/alignment/widths, page break before an apostille |
+| Assistant (review helper) | claude-sonnet-5-5 | one block (source + translation), 2 blocks before/after, its open flags, the reviewer's question | `AssistOut`: answer (in the UI language) + up to 3 wordings | **nothing applied**: the reviewer copies a wording into the editor and saves it as their own edit |
 
 **Automated QA** runs before the model's QA, with no model call (`qa/scan.py`):
 
@@ -433,6 +434,7 @@ cookie signed with HMAC-SHA256.
 | GET | `/api/jobs/{id}/events` | same | SSE: `progress` (audit records without document text), `status`, `end` |
 | GET | `/api/jobs/{id}/glossary` · POST `…/glossary/confirm` | same | proposed or confirmed glossary; confirming resumes the job |
 | GET | `/api/jobs/{id}/documents/{dNN}` | same | latest model JSON of a document (review preview) |
+| POST | `/api/jobs/{id}/documents/{dNN}/assist` | creator, approver, admin | `{block, question}` while `waiting_review` → `{answer, suggestions[]}`; read-only, one model call (audited, added to the job cost) |
 | POST | `/api/jobs/{id}/approve` | the signer or an admin | `{note}`; resumes into release |
 | POST | `/api/jobs/{id}/retry` | same | for `failed` jobs |
 | GET | `/api/jobs/{id}/files/{name}` | same | download; 409 before release; path traversal blocked |
@@ -462,8 +464,12 @@ cookie signed with HMAC-SHA256.
 layout uses logical Tailwind classes (`ms-`, `pe-`, `text-start`). User text uses `dir="auto"`. The choice is
 persisted per user (`/api/me/prefs`). Adding a UI language means adding a message block.
 
-**API client and fonts:** `src/api.ts` (typed). The app makes no external calls: system fonts only (Segoe UI and
-Tahoma for Arabic on Windows).
+**API client and fonts:** `src/api.ts` (typed). The app makes no external calls: the UI fonts are bundled with the app
+(IBM Plex Sans / Sans Arabic for text, IBM Plex Serif / Noto Naskh Arabic for titles, via `@fontsource`). Document
+fonts for Word/PDF output still come from the language profiles and the Asset Library.
+
+**Phase 6 redesign:** sidebar shell, home desk ("Needs you now"), review workspace, job journey, New job composer,
+light/dark theme and the AI helper are described in `docs/DEVELOPER_GUIDE.md` §8b.
 
 ---
 
