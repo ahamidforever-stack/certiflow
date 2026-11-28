@@ -1,36 +1,66 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import { toast } from "sonner";
+import { ArrowLeft, CheckCheck, FileText, Keyboard, ListChecks, Lock, PanelRightClose, PanelRightOpen, RotateCw, Save, Sparkles, X } from "lucide-react";
 import { api, type DocBlock, type DocModel, type Job, type Language, type ReviewResult } from "../api";
-import { wordDiff } from "../diff";
 import { useI18n } from "../i18n";
+import { cn } from "../lib/cn";
+import { SealRing } from "../components/Seal";
+import { progressOf } from "../lib/jobs";
+import { BlockRow } from "../components/review/BlockRow";
+import SourcePane from "../components/review/SourcePane";
+import Checklist from "../components/review/Checklist";
+import Helper, { type Turn } from "../components/review/Helper";
+import { RerunDialog, ShortcutsDialog } from "../components/review/Dialogs";
+import { isTyping, needsLook, openFlags, pendingChanges, type Draft, type Filter, type SaveState } from "../components/review/helpers";
 
-// Side-by-side review editor: source page (with block boxes) | translated blocks (editable).
-// Every save goes to the API, which records history and writes <doc>.reviewed.json.
+// Review workspace: checklist | source pages | translation, full height, each pane scrolling on its own.
+// Every save goes to the API, which records history and writes <doc>.reviewed.json. The model never edits directly.
 
-const AGENTS = new Set(["translator", "proofreader", "qa", "formatter"]);
-type Draft = { text?: string; cells?: Record<string, string> };
-type SaveState = "saved" | "saving" | "dirty" | "error";
+const readBool = (k: string, d: boolean) => { try { const v = window.localStorage.getItem(k); return v == null ? d : v === "1"; } catch { return d; } };
+const writeBool = (k: string, v: boolean) => { try { window.localStorage.setItem(k, v ? "1" : "0"); } catch { /* private mode */ } };
 
-const pendingChanges = (b: DocBlock) =>
-  (b.history || []).map((h, i) => ({ h, i }))
-    .filter(({ h }) => AGENTS.has(h.actor) && h.old != null && h.new != null && h.old !== h.new && !h.review);
-const openFlags = (b: DocBlock) => (b.flags || []).map((f, i) => ({ f, i })).filter(({ f }) => !f.resolved);
-const hasBlocker = (b: DocBlock) => openFlags(b).some(({ f }) => f.severity === "blocker");
+function useMedia(q: string) {
+  const [m, setM] = useState(() => window.matchMedia?.(q).matches ?? true);
+  useEffect(() => {
+    const mq = window.matchMedia?.(q);
+    if (!mq) return;
+    const on = (e: MediaQueryListEvent) => setM(e.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [q]);
+  return m;
+}
 
 export default function Review() {
   const { id = "", doc = "" } = useParams();
-  const { t } = useI18n();
+  const { t, dir } = useI18n();
   const nav = useNavigate();
+  const wide = useMedia("(min-width: 1024px)");
   const [job, setJob] = useState<Job | null>(null);
   const [model, setModel] = useState<DocModel | null>(null);
   const [langs, setLangs] = useState<Language[]>([]);
   const [loadErr, setLoadErr] = useState("");
-  const [err, setErr] = useState("");
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [save, setSave] = useState<SaveState>("saved");
   const [selected, setSelected] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());   // blocks chosen for a re-run
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set()); // blocks an agent is re-running
+  const [filter, setFilter] = useState<Filter>("all");
+  const [showList, setShowList] = useState(() => readBool("cf_rv_list", true));
+  const [follow, setFollow] = useState(() => readBool("cf_rv_follow", true));
+  const [view, setView] = useState<"src" | "tgt" | "list">("tgt");   // phones: one pane at a time
+  const [help, setHelp] = useState(false);
+  const [rerunOpen, setRerunOpen] = useState(false);
+  const [sideTab, setSideTab] = useState<"list" | "helper">("list");
+  const [turns, setTurnsState] = useState<Record<string, Turn[]>>({});   // helper conversations per block (this visit only)
+  const helperInput = useRef<HTMLTextAreaElement>(null);
+  const srcRef = useRef<HTMLDivElement>(null);
+  const tgtRef = useRef<HTMLDivElement>(null);
+  const quietUntil = useRef(0);   // pause "follow" while we scroll on purpose
+  const lastPage = useRef<number | null>(null);
 
   const load = useCallback(() => {
     setLoadErr("");
@@ -38,7 +68,7 @@ export default function Review() {
       .then(([j, m, l]) => { setJob(j); setModel(m.model); setLangs(l); })
       .catch((e) => setLoadErr(e.message));
   }, [id, doc]);
-  useEffect(() => { setDrafts({}); setSave("saved"); load(); }, [load]);
+  useEffect(() => { setDrafts({}); setSave("saved"); setSelected(null); setTurnsState({}); load(); }, [load]);
 
   const dirty = Object.keys(drafts).length > 0;
   useEffect(() => {
@@ -55,11 +85,10 @@ export default function Review() {
   const refreshAfterRerun = () => api.job(id).then((j) => {
     setJob(j);
     if (j.status === "reworking") return;
-    if (j.error) setErr(j.error);
+    setBusyIds(new Set());
+    if (j.error) toast.error(j.error);
     return api.documentModel(id, doc).then((m) => setModel(m.model));
   });
-
-  // while an agent re-runs, follow the job
   useEffect(() => {
     if (!reworking) return;
     const h = window.setInterval(() => { refreshAfterRerun().catch(() => {}); }, 2000);
@@ -68,159 +97,309 @@ export default function Review() {
   }, [reworking, id, doc]);
 
   const startRerun = (agent: string, instruction: string) => {
-    setErr("");
-    return api.rerun(id, doc, agent, [...picked], instruction)
-      .then(() => { setPicked(new Set()); return refreshAfterRerun(); })
-      .catch((e) => setErr(e.message));
+    const ids = [...picked];
+    return api.rerun(id, doc, agent, ids, instruction)
+      .then(() => { setBusyIds(new Set(ids)); setPicked(new Set()); toast(t("edToastRerun", { n: ids.length })); return refreshAfterRerun(); })
+      .catch((e) => toast.error(e.message));
   };
   const dirOf = (code?: string) => langs.find((l) => l.code === code)?.direction ?? "ltr";
 
   const apply = (p: Promise<ReviewResult>) => {
-    setSave("saving"); setErr("");
-    return p.then((r) => { setModel(r.model); setSave("saved"); return true; })
-      .catch((e) => { setErr(e.message); setSave("error"); return false; });
+    setSave("saving");
+    return p.then((r) => { setModel(r.model); setSave(Object.keys(drafts).length > 1 ? "dirty" : "saved"); return true; })
+      .catch((e) => { toast.error(e.message); setSave("error"); return false; });
   };
 
   const saveBlock = async (b: DocBlock) => {
     const d = drafts[b.id];
-    if (!d) return;
+    if (!d) return true;
     const cells = d.cells ? Object.entries(d.cells).map(([k, text]) => { const [row, col] = k.split(",").map(Number); return { row, col, text }; }) : undefined;
     const ok = await apply(api.editBlock(id, doc, b.id, { text: d.text, cells }));
-    if (ok) setDrafts((x) => { const y = { ...x }; delete y[b.id]; return y; });
+    if (ok) setDrafts((x) => { const y = { ...x }; delete y[b.id]; if (!Object.keys(y).length) setSave("saved"); return y; });
+    return ok;
   };
-  const saveAll = async () => { for (const b of model?.blocks ?? []) if (drafts[b.id]) await saveBlock(b); };
-  const saveAllRef = useRef(saveAll);
-  saveAllRef.current = saveAll;
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); saveAllRef.current(); } };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, []);
+  const saveAll = async () => {
+    let n = 0;
+    for (const b of model?.blocks ?? []) if (drafts[b.id]) { if (!(await saveBlock(b))) return; n++; }
+    if (n) toast.success(t("edToastSaved"));
+  };
+  const decide = (b: DocBlock, i: number, d: "accept" | "reject") =>
+    apply(api.decideChange(id, doc, b.id, i, d)).then((ok) => { if (ok) toast.success(t(d === "accept" ? "edToastAccepted" : "edToastRejected")); });
+  const resolve = (b: DocBlock, i: number, c: string) =>
+    apply(api.resolveFlag(id, doc, b.id, i, c)).then((ok) => { if (ok) toast.success(t("edToastResolved")); });
 
   const setDraft = (b: DocBlock, patch: Draft) => {
     setDrafts((x) => ({ ...x, [b.id]: { ...x[b.id], ...patch, cells: { ...x[b.id]?.cells, ...patch.cells } } }));
     setSave("dirty");
   };
 
-  const pending = useMemo(() => (model?.blocks ?? []).flatMap((b) => pendingChanges(b).map((c) => ({ b, ...c }))), [model]);
-  const blockers = useMemo(() => (model?.blocks ?? []).filter(hasBlocker), [model]);
+  const blocks = useMemo(() => (model?.blocks ?? []).filter((b) => b.type !== "page_break"), [model]);
+  const pending = useMemo(() => blocks.flatMap((b) => pendingChanges(b).map((c) => ({ b, ...c }))), [blocks]);
   const acceptAll = async () => {
-    for (const c of pending) if (!(await apply(api.decideChange(id, doc, c.b.id, c.i, "accept")))) break;
+    for (const c of pending) if (!(await apply(api.decideChange(id, doc, c.b.id, c.i, "accept")))) return;
+    toast.success(t("edToastAccepted"));
   };
-
   const pages = useMemo(() => {
     const n = new Set<number>((model?.pages ?? []).map((p) => p.number));
     for (const b of model?.blocks ?? []) if (b.source_page) n.add(b.source_page);
     return [...n].sort((a, b) => a - b);
   }, [model]);
 
-  const focus = (bid: string, side: "src" | "tgt") => {
+  const shown = useMemo(() => blocks.filter((b) =>
+    filter === "all" || (filter === "issues" && openFlags(b).length > 0) || (filter === "changes" && pendingChanges(b).length > 0) || (filter === "edited" && !!drafts[b.id])),
+  [blocks, filter, drafts]);
+
+  /** Select a block and bring it into view on the other side(s). */
+  const focus = useCallback((bid: string, from: "src" | "tgt" | "list") => {
     setSelected(bid);
-    document.getElementById(`${side}-${bid}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    quietUntil.current = Date.now() + 1000;
+    const run = () => {
+      if (from !== "tgt") document.getElementById(`tgt-${bid}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (from !== "src") document.getElementById(`src-${bid}`)?.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    };
+    if (!wide && from !== "tgt") { setView("tgt"); window.setTimeout(run, 60); } else run();
+  }, [wide]);
+
+  // Follow: when the translation scrolls to another page, bring that source page into view.
+  useEffect(() => {
+    const root = tgtRef.current;
+    if (!root || !follow) return;
+    const io = new IntersectionObserver((entries) => {
+      if (Date.now() < quietUntil.current) return;
+      const top = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      const page = Number((top?.target as HTMLElement | undefined)?.dataset.page);
+      if (!page || page === lastPage.current) return;
+      lastPage.current = page;
+      document.getElementById(`src-page-${page}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, { root, rootMargin: "-15% 0px -70% 0px" });
+    root.querySelectorAll("[data-block]").forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [follow, shown, wide, view]);
+
+  // Keyboard: J/K walk the items to check, A/R decide, Ctrl+S saves, [ toggles the checklist, ? shows help.
+  const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyRef.current = (e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveAll(); return; }
+    if (isTyping(e) || e.ctrlKey || e.metaKey || e.altKey || help || rerunOpen) return;
+    const k = e.key.toLowerCase();
+    if (k === "j" || k === "k") {
+      const ids = shown.map((b) => b.id);
+      const todo = shown.filter(needsLook).map((b) => b.id);
+      if (!todo.length) return;
+      const cur = selected ? ids.indexOf(selected) : -1;
+      const next = k === "j"
+        ? todo.find((x) => ids.indexOf(x) > cur) ?? todo[0]
+        : [...todo].reverse().find((x) => ids.indexOf(x) < cur) ?? todo[todo.length - 1];
+      e.preventDefault(); focus(next, "list");
+    } else if ((k === "a" || k === "r") && editable && selected) {
+      const b = blocks.find((x) => x.id === selected);
+      const c = b && pendingChanges(b)[0];
+      if (b && c) { e.preventDefault(); decide(b, c.i, k === "a" ? "accept" : "reject"); }
+    } else if (k === "h" && selected) { e.preventDefault(); openHelper(selected); }
+    else if (e.key === "[") { e.preventDefault(); toggleList(); }
+    else if (e.key === "?") { e.preventDefault(); setHelp(true); }
   };
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => keyRef.current(e);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+
+  const openHelper = (bid: string) => {
+    setSelected(bid); setSideTab("helper");
+    if (wide && !showList) { setShowList(true); writeBool("cf_rv_list", true); }
+    if (!wide) setView("list");
+    window.setTimeout(() => helperInput.current?.focus(), 80);
+  };
+  const toggleList = () => setShowList((v) => { writeBool("cf_rv_list", !v); return !v; });
+  const setFollowP = (v: boolean) => { setFollow(v); writeBool("cf_rv_follow", v); };
   const leave = (to: string) => { if (!dirty || window.confirm(t("rvLeaveConfirm"))) nav(to); };
 
   if (loadErr) return (
-    <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-      <span className="flex-1">{t("rvLoadError")}</span><button className="btn-ghost" onClick={load}>{t("retry")}</button>
+    <div className="mx-auto mt-16 flex max-w-lg items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+      <span className="flex-1">{t("rvLoadError")}</span><button className="btn-ghost btn-sm" onClick={load}><RotateCw className="h-3.5 w-3.5" />{t("retry")}</button>
     </div>
   );
-  if (!job || !model) return <div className="text-slate-500">…</div>;
+  if (!job || !model) return <EditorSkeleton />;
+
   const sDir = dirOf(model.source_language), tDir = dirOf(model.target_language);
+  const blockersN = blocks.filter((b) => openFlags(b).some(({ f }) => f.severity === "blocker")).length;
+  const counts = { issues: blocks.filter((b) => openFlags(b).length).length, changes: blocks.filter((b) => pendingChanges(b).length).length, edited: Object.keys(drafts).length };
+  const dirtyIds = Object.keys(drafts);
+
+  const selBlock = blocks.find((x) => x.id === selected) ?? null;
+  const checklist = (
+    <div className="flex h-full min-h-0 flex-col bg-sidebar">
+      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-slate-200/80 px-2" role="tablist">
+        {([["list", "edChecklist", <ListChecks key="l" className="h-3.5 w-3.5" />], ["helper", "hpTab", <Sparkles key="h" className="h-3.5 w-3.5" />]] as const).map(([k, label, icon]) => (
+          <button key={k} role="tab" aria-selected={sideTab === k} onClick={() => setSideTab(k)}
+            className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition", sideTab === k ? "bg-surface font-medium text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-800")}>
+            {icon}{t(label)}
+          </button>
+        ))}
+      </div>
+      <div className="min-h-0 flex-1">
+        {sideTab === "list"
+          ? <Checklist jobId={id} blocks={blocks} editable={!!editable} dirtyIds={dirtyIds} selected={selected} onJump={(x) => focus(x, "list")} />
+          : <Helper ref={helperInput} jobId={id} doc={doc} block={selBlock} tDir={tDir} tLang={model.target_language} editable={!!editable}
+              turns={selected ? turns[selected] ?? [] : []}
+              setTurns={(bid, fn) => setTurnsState((m) => ({ ...m, [bid]: fn(m[bid] ?? []) }))}
+              onUse={(text) => { if (selBlock) { setDraft(selBlock, { text }); focus(selBlock.id, "list"); } }} />}
+      </div>
+    </div>
+  );
+  const source = (
+    <SourcePane ref={srcRef} jobId={id} doc={doc} lang={model.source_language} blocks={blocks} pages={pages}
+      selected={selected} hovered={hovered} follow={follow} onFollow={setFollowP} onHover={setHovered} onPick={(x) => focus(x, "src")} />
+  );
+  const translation = (
+    <section className="flex h-full min-h-0 flex-col bg-slate-50" aria-label={t("rvTargetPane")}>
+      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-slate-200/80 bg-surface px-3">
+        <h2 className="text-sm font-medium text-slate-700">
+          {t("rvTargetPane")} <span className="font-mono text-[11px] uppercase text-slate-400" dir="ltr">{model.target_language}</span>
+        </h2>
+        <div className="ms-auto flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5 text-xs" role="tablist" aria-label={t("edFilterAll")}>
+          {(["all", "issues", "changes", "edited"] as Filter[]).map((f) => (
+            (f === "all" || counts[f as keyof typeof counts] > 0 || filter === f) && (
+              <button key={f} role="tab" aria-selected={filter === f} onClick={() => setFilter(f)}
+                className={cn("flex items-center gap-1 rounded-md px-2 py-1 font-medium transition", filter === f ? "bg-surface text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800")}>
+                {t(`edFilter${f[0].toUpperCase()}${f.slice(1)}`)}
+                {f !== "all" && <span className="tabular-nums text-slate-400">{counts[f as keyof typeof counts]}</span>}
+              </button>
+            )
+          ))}
+        </div>
+      </header>
+      {reworking && (
+        <p role="status" className="flex items-center gap-2 border-b border-brand-100 bg-brand-50 px-4 py-2 text-sm text-brand-700">
+          <Sparkles className="h-4 w-4 animate-pulse" />{t("rvReworking")}
+        </p>
+      )}
+      {!editable && !reworking && (
+        <p className="flex items-center gap-2 border-b border-slate-200 bg-slate-100 px-4 py-2 text-sm text-slate-600"><Lock className="h-3.5 w-3.5" />{t("rvReadOnly")}</p>
+      )}
+      <div ref={tgtRef} className="relative min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-3xl px-2 pb-24 pt-2 sm:px-4">
+          {shown.length === 0 && <p className="py-16 text-center text-sm text-slate-500">{t("edNoMatch")}</p>}
+          {shown.map((b, i) => {
+            const newPage = b.source_page && b.source_page !== shown[i - 1]?.source_page;
+            return (
+              <div key={b.id}>
+                {newPage && (
+                  <div className="sticky top-0 z-10 -mx-2 flex items-center gap-3 bg-slate-50/90 px-2 py-2 backdrop-blur sm:-mx-4 sm:px-4">
+                    <span className="text-[11px] font-semibold text-slate-500">{t("rvPage")} <bdi>{b.source_page}</bdi></span>
+                    <span className="h-px flex-1 bg-slate-200" />
+                  </div>
+                )}
+                <BlockRow b={b} sDir={sDir} tDir={tDir} sLang={model.source_language} tLang={model.target_language}
+                  editable={!!editable} draft={drafts[b.id]} selected={selected === b.id} hovered={hovered === b.id}
+                  picked={picked.has(b.id)} busy={busyIds.has(b.id)}
+                  onHover={(on) => setHovered(on ? b.id : null)} onSelect={() => focus(b.id, "tgt")}
+                  onPick={(on) => setPicked((x) => { const y = new Set(x); if (on) y.add(b.id); else y.delete(b.id); return y; })}
+                  onDraft={(p) => setDraft(b, p)} onSave={() => saveBlock(b)}
+                  onCancel={() => setDrafts((x) => { const y = { ...x }; delete y[b.id]; if (!Object.keys(y).length) setSave("saved"); return y; })}
+                  onDecide={(ci, d) => decide(b, ci, d)} onResolve={(fi, c) => resolve(b, fi, c)}
+                  onAsk={editable ? () => openHelper(b.id) : undefined} />
+              </div>
+            );
+          })}
+        </div>
+        {/* selection bar for re-runs */}
+        {editable && picked.size > 0 && (
+          <div className="pointer-events-none sticky bottom-4 z-20 flex justify-center px-4">
+            <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-slate-200 bg-raised py-1.5 pe-1.5 ps-4 shadow-float animate-fade-in">
+              <span className="text-sm font-medium text-slate-700">{t("edSelected", { n: picked.size })}</span>
+              <button className="btn-quiet btn-sm" onClick={() => setPicked(new Set())}><X className="h-3.5 w-3.5" />{t("edClearSelection")}</button>
+              <button className="btn-primary btn-sm" onClick={() => setRerunOpen(true)}><Sparkles className="h-3.5 w-3.5" />{t("edRerunOpen")}</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+
+  const handle = (
+    <PanelResizeHandle className="group relative w-px bg-slate-200 outline-none transition-colors data-[resize-handle-state=drag]:bg-brand-400 data-[resize-handle-state=hover]:bg-brand-300">
+      <span className="absolute inset-y-0 -start-1.5 -end-1.5" />
+      <span className="absolute top-1/2 start-1/2 h-8 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-300 opacity-0 transition group-data-[resize-handle-state=drag]:opacity-100 group-data-[resize-handle-state=hover]:opacity-100 rtl:translate-x-1/2" />
+    </PanelResizeHandle>
+  );
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <button onClick={() => leave(`/jobs/${id}`)} className="text-sm text-brand-500 hover:underline">
-          <span className="inline-block rtl:rotate-180">←</span> {t("rvBackToJob")}
+    <div className="flex h-[calc(100dvh-3.5rem)] flex-col bg-slate-50 lg:h-dvh">
+      {/* toolbar */}
+      <header className="flex min-h-[3.5rem] shrink-0 items-center gap-x-2 gap-y-2 sm:gap-x-3 border-b border-slate-200/80 bg-surface px-3 py-2 lg:px-4">
+        <button onClick={() => leave(`/jobs/${id}`)} className="icon-btn" aria-label={t("rvBackToJob")} title={t("rvBackToJob")}>
+          <ArrowLeft className="h-[18px] w-[18px] rtl:-scale-x-100" />
         </button>
-        <h1 className="text-lg font-semibold text-slate-900" dir="auto">{model.title}</h1>
+        <SealRing progress={progressOf(job)} size={26} className="hidden sm:block" />
+        <div className="min-w-0 flex-1 leading-tight lg:flex-none">
+          <div className="truncate text-[11px] text-slate-500">{[job.title !== model.title ? job.title : null, job.client].filter(Boolean).map((x, i) => <span key={i}>{i > 0 && " · "}<bdi>{x}</bdi></span>)}</div>
+          <h1 className="truncate font-serif text-[17px] text-slate-900"><bdi>{model.title}</bdi></h1>
+        </div>
         {(job.documents?.length ?? 0) > 1 && (
-          <nav className="flex gap-1" aria-label={t("documents")}>
+          <nav className="flex gap-0.5 rounded-lg bg-slate-100 p-0.5" aria-label={t("documents")}>
             {job.documents!.map((d) => (
-              <button key={d.key} onClick={() => leave(`/jobs/${id}/review/${d.key}`)}
-                className={`rounded-md px-2.5 py-1 font-mono text-xs ${d.key === doc ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>{d.key}</button>
+              <button key={d.key} onClick={() => d.key !== doc && leave(`/jobs/${id}/review/${d.key}`)} title={d.title} aria-current={d.key === doc ? "page" : undefined}
+                className={cn("flex items-center gap-1 rounded-md px-2 py-1 text-xs transition", d.key === doc ? "bg-surface font-medium text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800")}>
+                <FileText className="h-3 w-3" /><span className="font-mono" dir="ltr">{d.key}</span>
+                {!!d.open_flags?.blocker && <span className="h-1.5 w-1.5 rounded-full bg-red-500" />}
+              </button>
             ))}
           </nav>
         )}
-        <SaveBadge state={save} />
-      </div>
-
-      <div className="card flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-3 text-sm">
-        <span className={blockers.length ? "font-medium text-red-700" : "text-emerald-700"}>
-          {blockers.length ? t("rvBlockersOpen", { n: blockers.length }) : t("rvNoBlockers")}
-        </span>
-        {blockers.length > 0 && (
-          <span className="flex flex-wrap gap-1">
-            {blockers.map((b) => <button key={b.id} onClick={() => focus(b.id, "tgt")} className="rounded bg-red-50 px-1.5 font-mono text-xs text-red-700 hover:bg-red-100" dir="ltr">{b.id}</button>)}
-          </span>
-        )}
-        <span className="text-slate-600">{t("rvPendingChanges", { n: pending.length })}</span>
-        <div className="ms-auto flex gap-2">
-          {editable && pending.length > 0 && <button className="btn-ghost" onClick={acceptAll} disabled={save === "saving"}>{t("rvAcceptAll")}</button>}
-          {editable && (
-            <a className={`btn-ghost ${dirty ? "pointer-events-none opacity-40" : ""}`} aria-disabled={dirty}
-              href={`/api/jobs/${id}/documents/${doc}/preview.pdf`} target="_blank" rel="noopener"
-              title={dirty ? t("rvPreviewSaveFirst") : t("rvPreviewHint")}>{t("rvPreview")}</a>
+        <div className="ms-auto flex items-center gap-1.5">
+          <SaveBadge state={save} />
+          {blockersN > 0 && <span className="hidden rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 2xl:inline">{t("rvBlockersOpen", { n: blockersN })}</span>}
+          {editable && pending.length > 0 && (
+            <button className="btn-ghost btn-sm" onClick={acceptAll} disabled={save === "saving"} title={t("rvAcceptAll")} aria-label={t("rvAcceptAll")}><CheckCheck className="h-3.5 w-3.5" /><span className="hidden xl:inline">{t("rvAcceptAll")}</span></button>
           )}
-          {editable && <button className="btn-primary" onClick={saveAll} disabled={!dirty || save === "saving"} title="Ctrl+S">{t("rvSaveAll")}</button>}
+          {editable && (
+            <a className={cn("btn-ghost btn-sm", dirty && "pointer-events-none opacity-40")} aria-disabled={dirty}
+              href={`/api/jobs/${id}/documents/${doc}/preview.pdf`} target="_blank" rel="noopener"
+              title={dirty ? t("rvPreviewSaveFirst") : t("rvPreviewHint")} aria-label={t("rvPreview")}><FileText className="h-3.5 w-3.5" /><span className="hidden xl:inline">{t("rvPreview")}</span></a>
+          )}
+          {editable && (
+            <button className="btn-primary btn-sm" onClick={saveAll} disabled={!dirty || save === "saving"} title="Ctrl+S">
+              <Save className="h-3.5 w-3.5" /><span className="hidden sm:inline">{t("rvSaveAll")}</span>
+            </button>
+          )}
+          <span className="mx-0.5 hidden h-5 w-px bg-slate-200 lg:block" />
+          <button className="icon-btn hidden h-8 w-8 lg:inline-flex" onClick={() => setHelp(true)} aria-label={t("edShortcuts")} title={`${t("edShortcuts")} (?)`}><Keyboard className="h-4 w-4" /></button>
+          <button className="icon-btn hidden h-8 w-8 lg:inline-flex" onClick={toggleList} aria-pressed={showList}
+            aria-label={showList ? t("edHideChecklist") : t("edShowChecklist")} title={`${showList ? t("edHideChecklist") : t("edShowChecklist")} ([)`}>
+            {showList ? <PanelRightClose className="h-4 w-4 -scale-x-100 rtl:scale-x-100" /> : <PanelRightOpen className="h-4 w-4 -scale-x-100 rtl:scale-x-100" />}
+          </button>
         </div>
-      </div>
-      {reworking && (
-        <p role="status" className="flex items-center gap-2 rounded-lg bg-blue-50 px-4 py-2 text-sm text-blue-800">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-current" />{t("rvReworking")}
-        </p>
-      )}
-      {!editable && !reworking && <p className="rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700">{t("rvReadOnly")}</p>}
-      {editable && picked.size > 0 && (
-        <RerunPanel count={picked.size} onRun={startRerun} onClear={() => setPicked(new Set())} dirty={dirty} />
-      )}
-      {err && <p className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700" dir="auto">{err}</p>}
+      </header>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* source pane */}
-        <section className="card overflow-hidden lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto" aria-label={t("rvSourcePane")}>
-          <h2 className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-700">
-            {t("rvSourcePane")} · <span className="font-mono text-xs uppercase" dir="ltr">{model.source_language}</span>
-          </h2>
-          {pages.length === 0 && <p className="p-4 text-sm text-slate-500">{t("rvNoPages")}</p>}
-          {pages.map((n) => (
-            <div key={n} className="border-b border-slate-200 p-3">
-              <div className="mb-1 text-xs text-slate-500">{t("rvPage")} <bdi>{n}</bdi></div>
-              <div className="relative">
-                <img src={api.pageImage(id, doc, n)} alt={`${t("rvPage")} ${n}`} className="w-full select-none rounded border border-slate-200" loading="lazy" />
-                {model.blocks.filter((b) => b.source_page === n && b.bbox?.length === 4).map((b) => {
-                  const [x0, y0, x1, y1] = b.bbox!;
-                  const on = selected === b.id || hovered === b.id;
-                  const tone = hasBlocker(b) ? "border-red-500 bg-red-500/10" : openFlags(b).length ? "border-amber-500 bg-amber-400/10" : "border-transparent hover:border-brand-500";
-                  // the image is not mirrored in RTL, so position from the physical left edge
-                  return (
-                    <button key={b.id} id={`src-${b.id}`} aria-label={b.id} dir="ltr"
-                      onClick={() => focus(b.id, "tgt")} onMouseEnter={() => setHovered(b.id)} onMouseLeave={() => setHovered(null)}
-                      className={`absolute rounded-sm border-2 ${on ? "border-brand-600 bg-brand-500/15" : tone}`}
-                      style={{ left: `${x0 / 10}%`, top: `${y0 / 10}%`, width: `${(x1 - x0) / 10}%`, height: `${(y1 - y0) / 10}%` }} />
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </section>
+      {wide ? (
+        <PanelGroup direction="horizontal" dir={dir} autoSaveId={showList ? "cf-review-3" : "cf-review-2"} className="min-h-0 flex-1">
+          {showList && (<>
+            <Panel id="list" order={1} defaultSize={20} minSize={14} maxSize={32}>{checklist}</Panel>
+            {handle}
+          </>)}
+          <Panel id="src" order={2} defaultSize={showList ? 38 : 46} minSize={20}>{source}</Panel>
+          {handle}
+          <Panel id="tgt" order={3} defaultSize={showList ? 42 : 54} minSize={28}>{translation}</Panel>
+        </PanelGroup>
+      ) : (
+        <>
+          <div className="flex shrink-0 gap-1 border-b border-slate-200 bg-surface p-1.5" role="tablist">
+            {([["src", "edViewSource"], ["tgt", "edViewTranslation"], ["list", "edViewChecklist"]] as const).map(([v, k]) => (
+              <button key={v} role="tab" aria-selected={view === v} onClick={() => setView(v)}
+                className={cn("flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-sm font-medium transition", view === v ? "bg-slate-100 text-slate-900" : "text-slate-500")}>
+                {v === "list" && <ListChecks className="h-4 w-4" />}{t(k)}
+                {v === "list" && counts.issues + counts.changes > 0 && <span className="rounded-full bg-red-50 px-1.5 text-[11px] text-red-700">{counts.issues + counts.changes}</span>}
+              </button>
+            ))}
+          </div>
+          <div className="min-h-0 flex-1">{view === "src" ? source : view === "list" ? checklist : translation}</div>
+        </>
+      )}
 
-        {/* translation pane */}
-        <section className="space-y-3" aria-label={t("rvTargetPane")}>
-          {model.blocks.filter((b) => b.type !== "page_break").map((b) => (
-            <BlockCard key={b.id} b={b} sDir={sDir} tDir={tDir} sLang={model.source_language} tLang={model.target_language}
-              editable={!!editable} draft={drafts[b.id]} active={selected === b.id || hovered === b.id}
-              onHover={(on) => setHovered(on ? b.id : null)} onSelect={() => focus(b.id, "src")}
-              onDraft={(p) => setDraft(b, p)} onSave={() => saveBlock(b)}
-              onCancel={() => setDrafts((x) => { const y = { ...x }; delete y[b.id]; if (!Object.keys(y).length) setSave("saved"); return y; })}
-              onDecide={(i, d) => apply(api.decideChange(id, doc, b.id, i, d))}
-              onResolve={(i, c) => apply(api.resolveFlag(id, doc, b.id, i, c))}
-              picked={picked.has(b.id)} onPick={(on) => setPicked((x) => { const y = new Set(x); if (on) y.add(b.id); else y.delete(b.id); return y; })} />
-          ))}
-        </section>
-      </div>
-      <p className="text-xs text-slate-500">{t("rvApproveOnJob")} <Link className="text-brand-500 hover:underline" to={`/jobs/${id}`} onClick={(e) => { if (dirty && !window.confirm(t("rvLeaveConfirm"))) e.preventDefault(); }}>{t("rvBackToJob")}</Link></p>
+      <ShortcutsDialog open={help} onOpenChange={setHelp} />
+      <RerunDialog open={rerunOpen} onOpenChange={setRerunOpen} count={picked.size} dirty={dirty} onRun={startRerun} />
     </div>
   );
 }
@@ -228,177 +407,24 @@ export default function Review() {
 function SaveBadge({ state }: { state: SaveState }) {
   const { t } = useI18n();
   const map: Record<SaveState, string> = {
-    saved: "bg-emerald-50 text-emerald-700", saving: "bg-blue-50 text-blue-700", dirty: "bg-amber-50 text-amber-800", error: "bg-red-50 text-red-700",
+    saved: "text-emerald-700", saving: "text-brand-500", dirty: "text-seal-700", error: "text-red-700",
   };
-  return <span role="status" className={`ms-auto rounded-full px-2.5 py-0.5 text-xs font-medium ${map[state]}`}>{t(`rvSave_${state}`)}</span>;
-}
-
-interface CardProps {
-  picked: boolean; onPick: (on: boolean) => void;
-  b: DocBlock; sDir: string; tDir: string; sLang: string; tLang: string; editable: boolean; draft?: Draft; active: boolean;
-  onHover: (on: boolean) => void; onSelect: () => void; onDraft: (p: Draft) => void; onSave: () => void; onCancel: () => void;
-  onDecide: (i: number, d: "accept" | "reject") => void; onResolve: (i: number, comment: string) => void;
-}
-
-function BlockCard({ b, sDir, tDir, sLang, tLang, editable, draft, active, onHover, onSelect, onDraft, onSave, onCancel, onDecide, onResolve, picked, onPick }: CardProps) {
-  const { t } = useI18n();
-  const flags = openFlags(b);
-  const resolved = (b.flags || []).filter((f) => f.resolved);
-  const changes = pendingChanges(b);
-  const border = hasBlocker(b) ? "border-red-300" : flags.length ? "border-amber-300" : active ? "border-brand-500" : "border-slate-200";
-  const fieldLabel = (f?: string) => (f && f !== "translated_text" ? f.replace(/rows\[(\d+)\]\[(\d+)\]/, (_, r, c) => t("rvCell", { r: +r + 1, c: +c + 1 })) : "");
-
+  const dot: Record<SaveState, string> = { saved: "bg-emerald-500", saving: "bg-brand-400 animate-pulse", dirty: "bg-seal-500", error: "bg-red-500" };
   return (
-    <article id={`tgt-${b.id}`} onMouseEnter={() => onHover(true)} onMouseLeave={() => onHover(false)}
-      className={`rounded-xl border bg-white shadow-sm transition ${border} ${active ? "ring-2 ring-brand-100" : ""}`}>
-      <header className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-1.5 text-xs text-slate-500">
-        {editable && !b.multilingual_duplicate && (
-          <input type="checkbox" checked={picked} onChange={(e) => onPick(e.target.checked)} aria-label={t("rvPick", { id: b.id })}
-            className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-2 focus:ring-brand-100" />
-        )}
-        <button onClick={onSelect} className="font-mono text-slate-600 hover:text-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-100" dir="ltr" title={t("rvShowOnPage")}>{b.id}</button>
-        <span>{t(`bt_${b.type}`)}</span>
-        {b.source_page && <span>· {t("rvPage")} <bdi>{b.source_page}</bdi></span>}
-        {b.multilingual_duplicate && <span className="rounded bg-slate-100 px-1.5">{t("rvDuplicate")}</span>}
-        <span className="ms-auto flex gap-1">
-          {flags.map(({ f, i }) => (
-            <span key={i} className={`rounded px-1.5 font-medium ${f.severity === "blocker" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"}`}>{t(`sev_${f.severity}`)}</span>
-          ))}
-        </span>
-      </header>
-
-      <div className="grid gap-2 px-3 py-2">
-        {/* source text, in the source language direction */}
-        {!b.rows?.length && b.source_text && (
-          <p className="whitespace-pre-wrap text-sm text-slate-500" dir={sDir} lang={sLang}>{b.label ? `${b.label} ` : ""}{b.source_text}</p>
-        )}
-        {b.rows?.length ? (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm" dir={tDir} lang={tLang}>
-              <tbody>
-                {b.rows.map((r, ri) => (
-                  <tr key={ri}>
-                    {r.cells.map((c, ci) => {
-                      const key = `${ri},${ci}`;
-                      const val = draft?.cells?.[key] ?? c.translated_text ?? "";
-                      return (
-                        <td key={ci} colSpan={c.colspan ?? 1} className={`border border-slate-200 p-1 align-top ${r.header || c.header ? "bg-slate-50 font-medium" : ""}`}>
-                          {c.source_text && <div className="mb-1 text-xs text-slate-500" dir={sDir} lang={sLang}>{c.source_text}</div>}
-                          {editable && !c.blocks ? (
-                            <textarea aria-label={t("rvCell", { r: ri + 1, c: ci + 1 })} rows={Math.max(1, Math.ceil(val.length / 30))}
-                              className="w-full resize-y rounded border border-transparent bg-transparent p-1 hover:border-slate-300 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
-                              value={val} onChange={(e) => onDraft({ cells: { [key]: e.target.value } })} />
-                          ) : <div className="whitespace-pre-wrap p-1">{c.translated_text}</div>}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : b.type === "page_break" ? null : editable ? (
-          <textarea aria-label={t("rvTranslationOf", { id: b.id })} dir={tDir} lang={tLang}
-            rows={Math.max(2, Math.ceil(((draft?.text ?? b.translated_text) || "").length / 70))}
-            className={`input resize-y leading-relaxed ${b.type === "heading" ? "font-semibold" : ""} ${b.type === "note" ? "italic text-brand-600" : ""}`}
-            value={draft?.text ?? b.translated_text ?? ""} onChange={(e) => onDraft({ text: e.target.value })}
-            onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); onSave(); } }} />
-        ) : (
-          <p className="whitespace-pre-wrap text-sm leading-relaxed" dir={tDir} lang={tLang}>{b.translated_text}</p>
-        )}
-        {draft && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-amber-700">{t("rvSave_dirty")}</span>
-            <button className="btn-ghost ms-auto px-3 py-1" onClick={onCancel}>{t("rvCancel")}</button>
-            <button className="btn-primary px-3 py-1" onClick={onSave} title="Ctrl+Enter">{t("rvSave")}</button>
-          </div>
-        )}
-
-        {/* tracked changes from the agents */}
-        {changes.map(({ h, i }) => (
-          <div key={i} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-            <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-              <span className="font-medium">{t("rvChangeBy", { agent: t(`agent_${h.actor}`) })}</span>
-              {fieldLabel(h.field) && <span>· {fieldLabel(h.field)}</span>}
-              {h.reason && <span dir="auto">· {h.reason}</span>}
-            </div>
-            <p className="whitespace-pre-wrap leading-relaxed" dir={tDir} lang={tLang}>
-              {wordDiff(h.old ?? "", h.new ?? "").map((p, k) =>
-                p.kind === "same" ? <span key={k}>{p.text}</span>
-                  : p.kind === "del" ? <del key={k} className="bg-red-50 text-red-700 decoration-red-500">{p.text}</del>
-                    : <ins key={k} className="bg-emerald-50 text-emerald-800 decoration-emerald-600 decoration-2">{p.text}</ins>)}
-            </p>
-            {editable && (
-              <div className="mt-2 flex gap-2">
-                <button className="btn-ghost px-3 py-1" onClick={() => onDecide(i, "accept")}>✓ {t("rvAccept")}</button>
-                <button className="btn-ghost px-3 py-1 text-red-700" onClick={() => onDecide(i, "reject")}>✕ {t("rvReject")}</button>
-              </div>
-            )}
-          </div>
-        ))}
-
-        {/* QA flags */}
-        {flags.map(({ f, i }) => <FlagRow key={i} f={f} editable={editable} onResolve={(c) => onResolve(i, c)} />)}
-        {resolved.map((f, k) => (
-          <p key={k} className="text-xs text-emerald-700">
-            ✓ {t("rvResolvedBy", { by: f.resolved_by ?? "" })}{f.resolution ? <>: <span dir="auto">{f.resolution}</span></> : null}
-          </p>
-        ))}
-      </div>
-    </article>
+    <span role="status" className={cn("flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium", map[state])}>
+      <span className={cn("h-1.5 w-1.5 rounded-full", dot[state])} /><span className="hidden sm:inline">{t(`rvSave_${state}`)}</span>
+    </span>
   );
 }
 
-function FlagRow({ f, editable, onResolve }: { f: NonNullable<DocBlock["flags"]>[number]; editable: boolean; onResolve: (c: string) => void }) {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const [comment, setComment] = useState("");
-  const blocker = f.severity === "blocker";
+function EditorSkeleton() {
   return (
-    <div className={`rounded-lg px-3 py-2 text-sm ${blocker ? "bg-red-50 text-red-800" : "bg-amber-50 text-amber-900"}`}>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-xs" dir="ltr">{f.code}</span>
-        {f.message && <span className="flex-1" dir="auto">{f.message}</span>}
-        {editable && !open && <button className="ms-auto text-xs font-medium underline" onClick={() => setOpen(true)}>{t("rvResolve")}</button>}
+    <div className="flex h-[calc(100dvh-3.5rem)] flex-col lg:h-dvh" aria-hidden>
+      <div className="flex h-14 items-center gap-3 border-b border-slate-200 bg-surface px-4"><div className="skeleton h-6 w-6 rounded-full" /><div className="skeleton h-4 w-48" /></div>
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-px lg:grid-cols-[1fr_1fr]">
+        <div className="hidden bg-slate-100 p-6 lg:block"><div className="skeleton mx-auto aspect-[1/1.41] max-w-md" /></div>
+        <div className="space-y-4 p-6">{[0, 1, 2, 3, 4].map((i) => <div key={i} className="skeleton h-16" />)}</div>
       </div>
-      {open && (
-        <div className="mt-2 flex flex-wrap gap-2">
-          <input className="input min-w-[12rem] flex-1 bg-white" dir="auto" placeholder={blocker ? t("rvCommentRequired") : t("rvCommentOptional")}
-            aria-label={t("rvComment")} value={comment} onChange={(e) => setComment(e.target.value)} />
-          <button className="btn-primary px-3 py-1" disabled={blocker && !comment.trim()} onClick={() => onResolve(comment)}>{t("rvResolve")}</button>
-          <button className="btn-ghost px-3 py-1" onClick={() => setOpen(false)}>{t("rvCancel")}</button>
-        </div>
-      )}
     </div>
-  );
-}
-
-function RerunPanel({ count, dirty, onRun, onClear }: { count: number; dirty: boolean; onRun: (agent: string, instruction: string) => Promise<unknown>; onClear: () => void }) {
-  const { t } = useI18n();
-  const [agent, setAgent] = useState("translator");
-  const [instruction, setInstruction] = useState("");
-  const [busy, setBusy] = useState(false);
-  return (
-    <section className="card border-brand-100 p-4" aria-label={t("rvRerunTitle")}>
-      <div className="flex flex-wrap items-end gap-3">
-        <div>
-          <label className="label" htmlFor="rr-agent">{t("rvRerunAgent")}</label>
-          <select id="rr-agent" className="input" value={agent} onChange={(e) => setAgent(e.target.value)}>
-            {["translator", "proofreader", "qa"].map((a) => <option key={a} value={a}>{t(`agent_${a}`)}</option>)}
-          </select>
-        </div>
-        <div className="min-w-[16rem] flex-1">
-          <label className="label" htmlFor="rr-ins">{t("rvRerunInstruction")}</label>
-          <input id="rr-ins" className="input" dir="auto" maxLength={2000} value={instruction} placeholder={t("rvRerunInstructionPh")}
-            onChange={(e) => setInstruction(e.target.value)} />
-        </div>
-        <button className="btn-ghost" onClick={onClear}>{t("rvCancel")}</button>
-        <button className="btn-primary" disabled={busy || dirty}
-          onClick={() => { setBusy(true); onRun(agent, instruction).finally(() => setBusy(false)); }}>
-          {t("rvRerunRun", { n: count })}
-        </button>
-      </div>
-      <p className="mt-2 text-xs text-slate-500">{dirty ? t("rvRerunSaveFirst") : t("rvRerunHint")}</p>
-    </section>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type LangAdmin, type LanguageAdmin, type PairAdmin } from "../api";
 import { useI18n } from "../i18n";
+import { Sym } from "../components/Sym";
 
 // Admin: language profiles (fonts, sizes, translation rules) and per-pair rules, laid over the profile files.
 
@@ -66,7 +67,7 @@ function LanguageForm({ l, textFields, onSaved }: { l: LangAdmin; textFields: st
       </div>
 
       <h3 className="text-sm font-semibold text-slate-900">{t("laRules")}</h3>
-      <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">⚠ {t("laRulesWarn")}</p>
+      <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800"><Sym k="warn" />{t("laRulesWarn")}</p>
       {textFields.map((k) => (
         <div key={k}>
           <label className="label" htmlFor={id(k)}>{t(`f_${k}`)}</label>
@@ -127,7 +128,7 @@ function PairForm({ p, data, onSaved, onCancel }: { p: PairAdmin; data: Language
       <div>
         <label className="label" htmlFor="pf-conv">{t("f_conventions")}</label>
         <textarea id="pf-conv" rows={3} dir="auto" className="input" value={f.conventions} onChange={(e) => setF({ ...f, conventions: e.target.value })} />
-        <p className="mt-1 text-xs text-amber-800">⚠ {t("laRulesWarn")}</p>
+        <p className="mt-1 text-xs text-amber-800"><Sym k="warn" />{t("laRulesWarn")}</p>
       </div>
       <div>
         <label className="label" htmlFor="pf-tr">{t("f_transliteration_standard")}</label>
@@ -156,7 +157,7 @@ export default function Languages() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">{t("laTitle")}</h1>
+        <h1 className="font-serif text-xl font-medium text-slate-900">{t("laTitle")}</h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">{t("laHint")}</p>
       </div>
       {err && <div role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{err} <button className="ms-2 underline" onClick={load}>{t("retry")}</button></div>}
@@ -172,9 +173,9 @@ export default function Languages() {
                   <span className="text-slate-600" dir={l.direction} lang={l.code}>{l.native_name}</span>
                   {l.overridden.length > 0 && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">{t("laChanged")}</span>}
                   <span className="ms-auto flex flex-wrap items-center gap-x-2 text-xs">
-                    {l.pdf_font_installed ? <span className="text-green-700">✓ {t("laFontOk")}</span>
-                      : l.fallback_installed ? <span className="text-amber-700">⚠ {t("laFontFallback", { f: String(l.values.pdf_font_fallback) })}</span>
-                      : <span className="text-red-700">✕ {t("laFontMissing")}</span>}
+                    {l.pdf_font_installed ? <span className="text-green-700"><Sym k="ok" />{t("laFontOk")}</span>
+                      : l.fallback_installed ? <span className="text-amber-700"><Sym k="warn" />{t("laFontFallback", { f: String(l.values.pdf_font_fallback) })}</span>
+                      : <span className="text-red-700"><Sym k="bad" />{t("laFontMissing")}</span>}
                     <bdi className="text-slate-500" dir="ltr">{String(l.values.pdf_font)} · {String(l.values.body_size_pt)} pt</bdi>
                   </span>
                   <button className="text-sm text-brand-500 hover:underline" aria-expanded={open === l.code}

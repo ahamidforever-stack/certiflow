@@ -1998,6 +1998,63 @@
     }
    }
   },
+  "/api/jobs/{job_id}/documents/{doc_key}/assist": {
+   "post": {
+    "summary": "Assist",
+    "description": "Ask the review helper about one block: an answer and up to three wordings to copy by hand.\n\nRead-only (the document is not changed). One model call; its cost is added to the job.",
+    "operationId": "assist_api_jobs__job_id__documents__doc_key__assist_post",
+    "parameters": [
+     {
+      "name": "job_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Job Id"
+      }
+     },
+     {
+      "name": "doc_key",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Doc Key"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AssistIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/jobs/{job_id}/documents/{doc_key}/preview.pdf": {
    "get": {
     "summary": "Preview",
@@ -2277,6 +2334,24 @@
     },
     "type": "object",
     "title": "AssetUpdateIn"
+   },
+   "AssistIn": {
+    "properties": {
+     "block": {
+      "type": "string",
+      "title": "Block"
+     },
+     "question": {
+      "type": "string",
+      "title": "Question"
+     }
+    },
+    "type": "object",
+    "required": [
+     "block",
+     "question"
+    ],
+    "title": "AssistIn"
    },
    "BlockEditIn": {
     "properties": {

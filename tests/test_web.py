@@ -330,6 +330,35 @@ def test_rerun_agent_on_selected_blocks(web, src_pdf):
                 break
 
 
+def test_assist_helper_is_read_only(web, src_pdf):
+    """Phase 6: the review helper answers about one block and proposes wordings; the document is not changed."""
+    import json as _json
+
+    from certiflow.web import runner
+    cfg, app = web
+    c = client(app, "translator1")
+    jid = _to_review(c, src_pdf)
+    base = f"/api/jobs/{jid}/documents/d01"
+    before = c.get(base).json()["model"]
+    target = next(b for b in before["blocks"] if not b.get("rows") and b.get("translated_text"))["id"]
+    r = c.post(f"{base}/assist", json={"block": target, "question": "Is the register formal enough?"}, headers=H)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["answer"] and 1 <= len(out["suggestions"]) <= 3 and out["suggestions"][0]["text"]
+    assert c.get(base).json()["model"] == before                       # nothing applied to the document
+    assert c.post(f"{base}/assist", json={"block": target, "question": "  "}, headers=H).status_code == 422
+    assert c.post(f"{base}/assist", json={"block": "p9b99", "question": "why?"}, headers=H).status_code == 404
+    # audit: the model call (agent "assistant") and an event with ids only, never the question
+    lines = (runner.job_dir(cfg, jid) / "audit.jsonl").read_text("utf-8").splitlines()
+    audit = [_json.loads(x) for x in lines]
+    assert any(a.get("kind") == "llm_call" and a["agent"] == "assistant" for a in audit)
+    ev = next(a for a in audit if a.get("kind") == "assist")
+    assert ev["block"] == target and ev["by"] == "translator1" and "register" not in _json.dumps(ev)
+    # another user without access to the job cannot ask
+    assert client(app, "translator2").post(f"{base}/assist", json={"block": target, "question": "x"},
+                                            headers=H).status_code in (403, 404)
+
+
 def test_rerun_refused_outside_review(web, src_pdf):
     cfg, app = web
     c = client(app, "translator1")

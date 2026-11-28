@@ -1,13 +1,44 @@
+@import "./theme.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@layer components {
-  .card { @apply bg-white rounded-xl border border-slate-200 shadow-sm; }
-  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition disabled:opacity-40 disabled:cursor-not-allowed; }
-  .btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-700; }
-  .btn-ghost { @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50; }
-  .input { @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100; }
-  .label { @apply block text-sm font-medium text-slate-700 mb-1; }
+@layer base {
+  html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  body { @apply bg-slate-50 font-sans text-slate-900; }
+  /* Arabic: Plex Sans Arabic first so Latin digits inside Arabic text share its metrics. */
+  [dir="rtl"] body { font-family: "IBM Plex Sans Arabic", "IBM Plex Sans", system-ui, Tahoma, sans-serif; }
+  :focus-visible { @apply outline-none ring-2 ring-brand-500/50 ring-offset-1 ring-offset-surface; }
+  ::selection { @apply bg-brand-100 text-brand-900; }
+  * { scrollbar-width: thin; scrollbar-color: rgb(var(--c-slate-300)) transparent; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+  }
 }
-[dir="rtl"] body { font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", system-ui, sans-serif; }
+
+@layer components {
+  /* Surfaces */
+  .card { @apply rounded-xl border border-slate-200/80 bg-surface shadow-paper; }
+  .panel { @apply rounded-xl border border-slate-200/80 bg-surface; }
+
+  /* Buttons. One primary per area; `.btn-seal` only for certification moments (approve, stamp, release). */
+  .btn { @apply inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:active:translate-y-0; }
+  .btn-sm { @apply px-2.5 py-1.5 text-[13px]; }
+  .btn-primary { @apply btn bg-brand-600 text-white shadow-sm hover:bg-brand-700; }
+  .btn-seal { @apply btn bg-seal-500 text-white shadow-sm hover:bg-seal-600; }
+  .btn-ghost { @apply btn border border-slate-200 bg-surface text-slate-700 hover:border-slate-300 hover:bg-slate-50; }
+  .btn-quiet { @apply btn text-slate-600 hover:bg-slate-100 hover:text-slate-900; }
+  .icon-btn { @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-200/60 hover:text-slate-900; }
+
+  /* Forms */
+  .input { @apply w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-900 transition placeholder:text-slate-400 hover:border-slate-300 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/10; }
+  .label { @apply mb-1.5 block text-sm font-medium text-slate-700; }
+
+  /* Small things */
+  .kbd { @apply inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border border-slate-200 bg-surface px-1 font-sans text-[11px] font-medium text-slate-500; }
+  .eyebrow { @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500; }
+  [dir="rtl"] .eyebrow { @apply text-xs normal-case tracking-normal; }
+  .page-title { @apply font-serif text-[1.65rem] font-medium leading-tight tracking-tight text-slate-900; }
+  .skeleton { @apply animate-shimmer rounded-md bg-[length:200%_100%]; background-image: linear-gradient(90deg, rgb(var(--c-slate-100)) 0%, rgb(var(--c-slate-200)) 50%, rgb(var(--c-slate-100)) 100%); }
+}

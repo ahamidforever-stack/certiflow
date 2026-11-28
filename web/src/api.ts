@@ -143,6 +143,8 @@ export const api = {
     req<ReviewResult>("POST", `/api/jobs/${id}/documents/${key}/blocks/${encodeURIComponent(block)}/flags/${index}/resolve`, { comment }),
   rerun: (id: string, key: string, agent: string, blocks: string[], instruction: string) =>
     req<{ ok: boolean }>("POST", `/api/jobs/${id}/documents/${key}/rerun`, { agent, blocks, instruction }),
+  assist: (id: string, key: string, block: string, question: string) =>
+    req<AssistReply>("POST", `/api/jobs/${id}/documents/${key}/assist`, { block, question }),
   audit: (id: string) => req<{ records: AuditRecord[]; truncated: boolean }>("GET", `/api/jobs/${id}/audit`),
   pageImage: (id: string, key: string, n: number) => `/api/jobs/${id}/documents/${key}/pages/${n}.png`,
 };
@@ -162,3 +164,4 @@ export interface AuditRecord { kind: string; at?: string; by?: string | null; ag
   document?: string; block?: string; blocks?: string[] | number; action?: string; model?: string; prompt_version?: string;
   usage?: { input_tokens?: number; output_tokens?: number }; cost_usd?: number; latency_s?: number; error?: string | null;
   note?: string | null; pdf?: string }
+export interface AssistReply { answer: string; suggestions: { text: string; note: string }[] }

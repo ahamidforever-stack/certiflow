@@ -43,7 +43,8 @@ test("review flow from upload to release", async ({ page }) => {
 
   // re-run the translator on that block, then reject its change: the reviewer's text comes back
   await card.getByRole("checkbox").check();
-  await page.selectOption("#rr-agent", "translator");
+  await page.getByRole("button", { name: /Run an agent again/ }).click();   // selection bar opens the re-run dialog
+  await page.getByRole("dialog").getByText("Translation", { exact: true }).click();
   await page.fill("#rr-ins", "formal register");
   await page.getByRole("button", { name: /Run on 1 block/ }).click();
   await expect(card.getByText(/Change by Translation/)).toBeVisible();
@@ -59,8 +60,8 @@ test("review flow from upload to release", async ({ page }) => {
 
   // approve with confirmation
   await page.goto(jobUrl);
-  await page.getByRole("button", { name: /Approve and release/ }).click();
-  const dialog = page.getByRole("alertdialog");
+  await page.getByRole("button", { name: /Approve and stamp/ }).click();
+  const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("Certified stamp");
   await dialog.getByRole("button", { name: /Approve and release/ }).click();
   const pdfLink = page.locator('a[download][href$=".pdf"]').first();
@@ -70,23 +71,25 @@ test("review flow from upload to release", async ({ page }) => {
 
   // audit log
   await page.getByRole("link", { name: "Audit log" }).click();
-  await expect(page.getByRole("cell", { name: "Edited a block" })).toBeVisible();
-  await expect(page.getByRole("cell", { name: /Rejected an agent change/ })).toBeVisible();
-  await expect(page.getByRole("cell", { name: /Re-run finished/ })).toBeVisible();
+  await expect(page.getByRole("listitem").filter({ hasText: "Edited a block" }).first()).toBeVisible();
+  await expect(page.getByRole("listitem").filter({ hasText: /Rejected an agent change/ }).first()).toBeVisible();
+  await expect(page.getByRole("listitem").filter({ hasText: /Re-run finished/ }).first()).toBeVisible();
   if (process.env.E2E_SHOTS) await page.screenshot({ path: join(process.env.E2E_SHOTS, "audit.en.png"), fullPage: true });
   await page.getByRole("button", { name: "People" }).click();
-  await expect(page.getByRole("cell", { name: /Model call/ })).toHaveCount(0);
+  await expect(page.getByText(/Model call/)).toHaveCount(0);
 });
 
 test("editor and audit log in Arabic are right-to-left", async ({ page }) => {
   await signIn(page);
-  await page.getByRole("button", { name: "العربية" }).click();
+  await page.getByRole("button", { name: "Account" }).click();            // user menu → interface language
+  await page.getByRole("menuitem", { name: /Interface language/ }).click();
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
-  await page.getByRole("link", { name: "المهام" }).click();
+  await page.getByRole("navigation").getByRole("link", { name: "كل المهام" }).click();
   await page.locator('a[href^="/jobs/J"]').first().click();
   await page.getByRole("link", { name: "سجل التدقيق" }).click();
   await expect(page.getByRole("heading", { name: "سجل التدقيق" })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "عدّل فقرة" })).toBeVisible();
+  await expect(page.getByRole("listitem").filter({ hasText: "عدّل فقرة" }).first()).toBeVisible();
   if (process.env.E2E_SHOTS) await page.screenshot({ path: join(process.env.E2E_SHOTS, "audit.ar.png"), fullPage: true });
-  await page.getByRole("button", { name: "English" }).click();   // leave the user's language as it was
+  await page.getByRole("button", { name: "الحساب" }).click();   // leave the user's language as it was
+  await page.getByRole("menuitem", { name: /لغة الواجهة/ }).click();
 });

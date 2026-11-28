@@ -57,7 +57,7 @@ function CostChart({ bars, calls }: { bars: Bar[]; calls: (n: number) => string 
             ))}
           </div>
           {hover !== null && (
-            <div className="pointer-events-none absolute -top-2 z-10 -translate-x-1/2 -translate-y-full rounded-md bg-slate-900 px-2.5 py-1.5 text-xs text-white shadow"
+            <div className="pointer-events-none absolute -top-2 z-10 -translate-x-1/2 -translate-y-full rounded-md bg-slate-900 px-2.5 py-1.5 text-xs text-slate-50 shadow"
               style={{ left: `${((hover + 0.5) / bars.length) * 100}%` }}>
               <div className="font-medium">{bars[hover].label}</div>
               <div>{money(bars[hover].cost_usd)} · {calls(bars[hover].calls)}</div>
@@ -102,8 +102,8 @@ export default function Usage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold text-slate-900">{t("coTitle")}</h1>
-        <div role="group" aria-label={t("coRange")} className="ms-auto inline-flex rounded-lg border border-slate-300 bg-white p-0.5">
+        <h1 className="font-serif text-xl font-medium text-slate-900">{t("coTitle")}</h1>
+        <div role="group" aria-label={t("coRange")} className="ms-auto inline-flex rounded-lg border border-slate-300 bg-surface p-0.5">
           {RANGES.map((r) => (
             <button key={r} aria-pressed={days === r} onClick={() => setDays(r)}
               className={`rounded-md px-3 py-1 text-sm ${days === r ? "bg-brand-600 text-white" : "text-slate-700 hover:bg-slate-50"}`}>

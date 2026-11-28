@@ -31,6 +31,7 @@ if (!paths.length) paths.push("/");
 const base = opt("--base", "http://localhost:5173");
 const lang = opt("--lang", "en");
 const mobile = flag("--mobile");
+const dark = flag("--dark");   // the UI follows the system theme unless the user picked one
 const viewport = { width: Number(opt("--width", mobile ? 390 : 1440)), height: Number(opt("--height", mobile ? 844 : 900)) };
 const user = process.env.CERTIFLOW_DEV_USER, password = process.env.CERTIFLOW_DEV_PASSWORD;
 
@@ -38,7 +39,7 @@ const outDir = resolve(root, "out/shots");
 mkdirSync(outDir, { recursive: true });
 
 const browser = await chromium.launch();
-const ctx = await browser.newContext({ viewport, deviceScaleFactor: mobile ? 2 : 1 });
+const ctx = await browser.newContext({ viewport, deviceScaleFactor: mobile ? 2 : 1, colorScheme: dark ? "dark" : "light" });
 const page = await ctx.newPage();
 const errors = [];
 page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
@@ -56,9 +57,10 @@ await ctx.addInitScript((l) => { try { localStorage.setItem("cf_lang", l); } cat
 
 for (const p of paths) {
   const url = base + (p === "/login" ? "/" : p);
-  await page.goto(url, { waitUntil: "networkidle" });
-  await page.waitForTimeout(400);
-  const name = `${(p.replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "") || "home")}.${lang}${mobile ? ".mobile" : ""}.png`;
+  // Pages with a live (SSE) connection never go network-idle: fall back to "loaded + a short wait".
+  try { await page.goto(url, { waitUntil: "networkidle", timeout: 8000 }); await page.waitForTimeout(400); }
+  catch { await page.waitForLoadState("load"); await page.waitForTimeout(2000); }
+  const name = `${(p.replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "") || "home")}.${lang}${mobile ? ".mobile" : ""}${dark ? ".dark" : ""}.png`;
   const file = resolve(outDir, name);
   await page.screenshot({ path: file, fullPage: true });
   console.log(file);
