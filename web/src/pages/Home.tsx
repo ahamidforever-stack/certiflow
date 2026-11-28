@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { Link } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, FileUp, RotateCw } from "lucide-react";
 import type { Job } from "../api";
 import { useAuth } from "../App";
@@ -69,9 +69,16 @@ export default function Home() {
 
 function StartCard({ first }: { first: boolean }) {
   const { t } = useI18n();
+  const nav = useNavigate();
+  const [over, setOver] = useState(false);
+  // Files dropped here go straight into the New job composer.
   return (
     <Link to="/new"
-      className="group relative flex items-center gap-5 overflow-hidden rounded-2xl border border-dashed border-slate-300 bg-surface px-6 py-6 transition hover:border-brand-400 hover:shadow-paper sm:px-8">
+      onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setOver(true); } }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => { e.preventDefault(); setOver(false); const files = Array.from(e.dataTransfer.files); if (files.length) nav("/new", { state: { files } }); }}
+      className={cn("group relative flex items-center gap-5 overflow-hidden rounded-2xl border border-dashed bg-surface px-6 py-6 transition hover:border-brand-400 hover:shadow-paper sm:px-8",
+        over ? "border-brand-500 bg-brand-50 shadow-paper" : "border-slate-300")}>
       <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 transition group-hover:bg-brand-600 group-hover:text-white">
         <FileUp className="h-6 w-6" />
       </span>

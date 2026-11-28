@@ -1,5 +1,9 @@
 // Strings of the Phase 6 job page (journey, glossary step, approval, release). Merged in i18n.tsx.
 export const jobEn = {
+  njTitle: "What do you want to translate?", njSubtitle: "Add the documents, choose the languages and the stamp. The agents prepare the translation; you check it and certify it.",
+  njAddMore: "Add more files", njDropOverlay: "Drop the files to add them", njOptions: "More options", njLanguages: "Languages",
+  njFileCount: "{n} file(s)", njSameLang: "Choose two different languages.", njNext: "What happens next",
+  njYouHint: "The highlighted steps are yours. The job appears under “Needs you” when it is your turn.",
   jvJourney: "Journey", jvDetails: "Details", jvActivity: "Live activity", jvNoActivity: "No live activity right now.",
   jvStepDone: "Done", jvStepWorking: "Working…", jvStepWaiting: "Waiting for you", jvStepFailed: "Stopped", jvStepNext: "Next",
   jvAgentsTitle: "The agents are working", jvAgentsHint: "You can leave this page. The job moves to “Needs you” when it is your turn.",
@@ -17,6 +21,10 @@ export const jobEn = {
 };
 
 export const jobAr: typeof jobEn = {
+  njTitle: "ماذا تريد أن تترجم؟", njSubtitle: "أضف المستندات واختر اللغتين والختم. يُعدّ الوكلاء الترجمة، وأنت تراجعها وتعتمدها.",
+  njAddMore: "إضافة ملفات أخرى", njDropOverlay: "أفلت الملفات لإضافتها", njOptions: "خيارات إضافية", njLanguages: "اللغتان",
+  njFileCount: "الملفات: {n}", njSameLang: "اختر لغتين مختلفتين.", njNext: "ما الذي يحدث بعد ذلك",
+  njYouHint: "الخطوات المميّزة خاصة بك. تظهر المهمة في «بحاجة إليك» عندما يحين دورك.",
   jvJourney: "مسار المهمة", jvDetails: "التفاصيل", jvActivity: "النشاط المباشر", jvNoActivity: "لا يوجد نشاط مباشر الآن.",
   jvStepDone: "اكتملت", jvStepWorking: "قيد العمل…", jvStepWaiting: "بانتظارك", jvStepFailed: "توقفت", jvStepNext: "التالية",
   jvAgentsTitle: "الوكلاء يعملون", jvAgentsHint: "يمكنك مغادرة هذه الصفحة. ستنتقل المهمة إلى «بحاجة إليك» عندما يحين دورك.",
