@@ -215,4 +215,13 @@ Dockerfile, docker-compose.yml, docker/entrypoint.sh, .env.example
     pair rules, template, source-script rule). The log records which prompt-facing texts changed, never their text.
     Screen: Admin → Languages (shows whether each PDF font is installed).
   - Admin pages are grouped under one "Admin" menu entry with tabs. Pipeline stage files are written atomically.
+- **Step 6, retention, backups, encryption (done):** `web/storage.py`. Settings in `<data>/settings/storage.json`
+  (retention off by default). `jobs.keep` (legal hold) and `jobs.purged_at` (migration 0006). `purge_job()` deletes a
+  job folder but rewrites `audit.jsonl` with the audit-view keys only. Backups: `create_backup()` (SQLite online copy
+  or `pg_dump`; the image now has `postgresql-client-16`), AES-256-GCM chunked encryption with an scrypt key from
+  `CERTIFLOW_BACKUP_KEY` (`cryptography` dependency), rotation to the newest N. A daemon thread in the API process runs
+  retention and the daily backup (`fcntl` lock so several workers do not collide; `CERTIFLOW_SCHEDULER=0` turns it
+  off; tests pass `scheduler=False`). CLI: `certiflow web backup [--no-jobs]`, `decrypt-backup --file F --out O`,
+  `purge`. API: `/api/admin/storage[...]`, `PUT /api/jobs/{id}/keep`. Screen: Admin → Storage; job page shows the
+  hold switch (admins) and a banner when files were deleted. Live data encryption is the disk's job (see SPEC §10).
 

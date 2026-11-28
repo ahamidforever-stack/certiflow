@@ -92,7 +92,7 @@ Legend: ✅ done and tested · 🟡 partial / different from brief (see notes) �
 | 7 | Docker Compose with LibreOffice, Tesseract packs, fonts | ✅ | Built and run end to end |
 | 7 | Screens: new job, pipeline view, release | ✅ | |
 | 7 | Screens: side-by-side editor, PDF preview, admin, audit view | ⬜ | Phases 4 and 5 |
-| 8 | Encryption at rest, retention/auto-delete, per-client access | ⬜ | Phase 5 (TLS via reverse proxy at deployment) |
+| 8 | Encryption at rest, retention/auto-delete, per-client access | 🟡 | Retention, legal hold and encrypted backups done (Phase 5); live data on encrypted disks; per-client access open |
 | 8 | API key server-side only | ✅ | |
 | 8 | Release only after certified approval; open blockers block | ✅ | |
 | 9 | Builder tests across the pair matrix, stamp overlap tests | ✅ | 64 tests |
@@ -392,6 +392,9 @@ little continuity for speed on very long documents.
 | `CERTIFLOW_LOGIN_IP_MAX_FAILURES` | `30` | Failed sign-ins per client address before it is locked |
 | `CERTIFLOW_LOGIN_LOCK_MINUTES` | `15` | Lock length (and the window the failures are counted in) |
 | `CERTIFLOW_TIMEZONE` | `Asia/Dubai` | Office time zone: the cost dashboard counts days in it |
+| `CERTIFLOW_BACKUP_KEY` | (empty) | Passphrase that encrypts backups; without it backups are written unencrypted |
+| `CERTIFLOW_BACKUP_DIR` | `<data>/backups` | Where backups are written |
+| `CERTIFLOW_SCHEDULER` | `1` | `0` turns off the background retention / daily backup thread (tests) |
 | `CERTIFLOW_MAX_UPLOAD_MB` | `80` | Per-file upload limit |
 | `CERTIFLOW_STATIC_DIR` | `web/dist` | Built frontend |
 | `CERTIFLOW_SETTINGS` | `config/agents.json` | Agent/model settings |
@@ -497,13 +500,21 @@ Tahoma for Arabic on Windows).
   `admin_events` with the admin's name. The list shows whether a certified translator has a personal stamp in the
   Asset Library (needed to certify).
 
+- **Retention (Phase 5):** off until an admin switches it on (Admin → Storage). After N days without activity
+  (released / unfinished separately) a job's files are deleted; its row, events, usage and the audit log reduced to
+  the audit-view keys stay. Jobs on legal hold ("keep") are never deleted. Runs every 15 minutes in the API process
+  (file lock: one process at a time); `certiflow web purge` runs it once.
+- **Backups (Phase 5):** `certiflow web backup` or Admin → Storage (also daily at a set hour): database (SQLite copy
+  or `pg_dump`), admin settings, asset library and optionally job folders in one `.tar.gz`, encrypted with
+  AES-256-GCM (scrypt-derived key, chunked, truncation detected) when `CERTIFLOW_BACKUP_KEY` is set. The newest N
+  are kept in `CERTIFLOW_BACKUP_DIR` (default `<data>/backups`); copy them off the server.
+
 **Gaps:**
 - **Phase 5 items:**
-  - encryption at rest for `/data` and the database (use encrypted volumes or disks at the cloud provider at minimum)
-  - retention and auto-deletion of jobs and audit logs
+  - encryption at rest for `/data` and the database: by the disk (LUKS or the cloud provider's encrypted disks);
+    the app encrypts its backups only
   - per-client access groups
   - an audit log UI
-  - backups
 - **Deployment item:** TLS terminated at a reverse proxy (Caddy or nginx).
 
 **Data residency:** files stay on the office's server, which can be in a UAE cloud region. Model calls send text to
@@ -538,6 +549,28 @@ chmod -R a+rX office
 docker compose up -d --build
 docker compose exec api certiflow web create-user amir.gomaa --role certified_translator --name "Amir Gomaa"
 ```
+
+**Backups and restore:**
+- Set `CERTIFLOW_BACKUP_KEY` in `.env` (a long passphrase; keep a copy offline: without it a backup cannot be
+  restored). Switch on the daily backup in Admin → Storage and copy `/data/backups` off the server every day.
+- The `./office` folder is mounted read-only; mount it read-write if admins should manage stamps and templates on the
+  "Stamps & templates" screen.
+- Restore on a new server (empty database), from the folder with `docker-compose.yml`:
+```bash
+docker compose up -d                                   # same .env (POSTGRES_PASSWORD, CERTIFLOW_BACKUP_KEY, ...)
+docker compose cp certiflow-YYYYMMDD-HHMMSS.tar.gz.enc api:/data/backups/
+docker compose exec api certiflow web decrypt-backup \
+    --file /data/backups/certiflow-YYYYMMDD-HHMMSS.tar.gz.enc --out /data/restore.tar.gz
+docker compose exec api sh -c 'mkdir -p /data/restore && tar xzf /data/restore.tar.gz -C /data/restore \
+    && cp -a /data/restore/settings /data/restore/jobs /data/'
+docker compose cp api:/data/restore/database/certiflow.sql ./certiflow.sql
+docker compose exec -T postgres psql -U certiflow -d certiflow -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+docker compose exec -T postgres psql -U certiflow -d certiflow < certiflow.sql
+docker compose cp api:/data/restore/library ./office-restored   # put it back as ./office/assets/<company>
+docker compose exec api rm -rf /data/restore /data/restore.tar.gz && rm certiflow.sql   # confidential copies
+docker compose restart api worker
+```
+  Practise a restore once on a test server before relying on it.
 
 **Hosting recommendation:** a UAE cloud region (Azure UAE North, AWS me-central-1 or Oracle Dubai/Abu Dhabi),
 4 vCPU / 16 GB RAM / 100 GB SSD, with encrypted disks, daily snapshots and a domain such as

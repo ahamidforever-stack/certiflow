@@ -20,6 +20,7 @@ PW = "correct-horse-battery"
 @pytest.fixture()
 def web(tmp_path, lib_dir, monkeypatch):
     cfg = WebConfig(data_dir=tmp_path / "data", library=lib_dir / "library.json", llm="mock", queue="thread",
+                    scheduler=False,
                     static_dir=tmp_path / "nostatic")
     Base.metadata.create_all(engine_for(cfg.database_url))
     with session_factory(cfg.database_url)() as s:
@@ -592,6 +593,7 @@ def web_lib(tmp_path, monkeypatch):
     lib = tmp_path / "lib"
     samples.make_library(lib)
     cfg = WebConfig(data_dir=tmp_path / "data", library=lib / "library.json", llm="mock", queue="thread",
+                    scheduler=False,
                     static_dir=tmp_path / "nostatic")
     Base.metadata.create_all(engine_for(cfg.database_url))
     with session_factory(cfg.database_url)() as s:
@@ -835,3 +837,105 @@ def test_language_and_pair_settings_overlay_the_profiles(web):
     assert resolve_pair("fr", "ar").conventions == "" and get_profile("ar").body_size_pt == 13
     assert resolve_pair("en", "ar").conventions.startswith("Follow passport")
     assert ((DATA_DIR / "ar.json").read_bytes(), (DATA_DIR / "pairs.json").read_bytes()) == before
+
+
+# ------------------------------------------------------------------ Phase 5: retention and backups
+
+
+def _age(cfg, job_id, days):
+    """Pretend a job has been idle for ``days``: database time and file times."""
+    import os
+    from datetime import datetime, timedelta, timezone
+
+    from certiflow.web.db import Job as JobRow
+    old = datetime.now(timezone.utc) - timedelta(days=days)
+    with session_factory(cfg.database_url)() as s:
+        row = s.get(JobRow, job_id)
+        row.updated_at = row.created_at = old
+        s.commit()
+    for f in (cfg.jobs_dir / job_id).rglob("*"):
+        os.utime(f, (old.timestamp(), old.timestamp()))
+
+
+def test_retention_deletes_files_keeps_record(web, src_pdf):
+    cfg, app = web
+    c = client(app, "translator1")
+    a = client(app, "admin")
+    j1, j2 = _to_review(c, src_pdf), _to_review(c, src_pdf)
+    _age(cfg, j1, 40)
+    _age(cfg, j2, 40)
+    v = a.get("/api/admin/storage").json()
+    assert v["settings"]["enabled"] is False and {x["id"] for x in v["candidates"]} == {j1, j2}
+    # switched off: nothing happens
+    assert a.post("/api/admin/storage/retention/run", headers=H).json()["result"]["purged"] == []
+    assert (cfg.jobs_dir / j1 / "docs").is_dir()
+    # legal hold on j2, switch on, run
+    assert a.put(f"/api/jobs/{j2}/keep", json={"keep": True}, headers=H).json()["keep"] is True
+    assert c.put(f"/api/jobs/{j2}/keep", json={"keep": False}, headers=H).status_code == 403
+    assert a.put("/api/admin/storage/settings", json={"enabled": True, "unfinished_days": 3}, headers=H).status_code == 422
+    a.put("/api/admin/storage/settings", json={"enabled": True}, headers=H)
+    r = a.post("/api/admin/storage/retention/run", headers=H).json()["result"]
+    assert r["purged"] == [j1] and r["freed"] > 0
+    left = sorted(p.name for p in (cfg.jobs_dir / j1).rglob("*"))
+    assert left == ["audit.jsonl"]                                  # only the reduced audit log stays
+    audit = (cfg.jobs_dir / j1 / "audit.jsonl").read_text("utf-8")
+    assert "instruction" not in audit and "prompt\"" not in audit
+    j = c.get(f"/api/jobs/{j1}").json()
+    assert j["purged_at"] and not j.get("files") and j["status"] == "waiting_review"
+    assert c.get(f"/api/jobs/{j1}/audit").json()["records"]          # the audit trail is still readable
+    assert (cfg.jobs_dir / j2 / "docs").is_dir()                     # held job untouched
+    assert a.post("/api/admin/storage/retention/run", headers=H).json()["result"]["purged"] == []   # idempotent
+
+
+def test_encrypted_backup_round_trip(web, monkeypatch, tmp_path):
+    import io
+    import tarfile
+
+    from certiflow.web import storage as stg
+    cfg, app = web
+    monkeypatch.setenv("CERTIFLOW_BACKUP_DIR", str(tmp_path / "bk"))
+    monkeypatch.setenv("CERTIFLOW_BACKUP_KEY", "a long office backup passphrase")
+    e = stg.create_backup(cfg)
+    assert e["encrypted"] and e["name"].endswith(".tar.gz.enc")
+    enc = (tmp_path / "bk" / e["name"]).read_bytes()
+    assert enc.startswith(b"CFBK1") and b"MANIFEST.json" not in enc
+    out = io.BytesIO()
+    stg.decrypt_stream(io.BytesIO(enc), out, "a long office backup passphrase")
+    with tarfile.open(fileobj=io.BytesIO(out.getvalue()), mode="r:gz") as tar:
+        names = tar.getnames()
+    assert "MANIFEST.json" in names and "database/certiflow.db" in names and any(n.startswith("library") for n in names)
+    for bad, data in (("wrong key", enc), ("truncated", enc[:-20])):
+        with pytest.raises(stg.StorageError):
+            stg.decrypt_stream(io.BytesIO(data), io.BytesIO(), "a long office backup passphrase" if bad == "truncated"
+                               else "guess")
+    # rotation keeps the newest N
+    stg.save_settings(cfg, {"backup_keep": 1})
+    import time
+    time.sleep(1.1)
+    stg.create_backup(cfg)
+    assert len(stg.list_backups(cfg)) == 1
+    a = client(app, "admin")
+    v = a.get("/api/admin/storage").json()
+    assert v["backup_encrypted"] is True and len(v["backups"]) == 1
+    assert "passphrase" not in str(v)                                # the key is never shown
+
+
+def test_daily_backup_runs_once_after_its_hour(web, monkeypatch, tmp_path):
+    from datetime import datetime, timezone
+
+    from certiflow.web import storage as stg
+    cfg, _ = web
+    monkeypatch.setenv("CERTIFLOW_BACKUP_DIR", str(tmp_path / "bk"))
+    monkeypatch.delenv("CERTIFLOW_BACKUP_KEY", raising=False)
+    Session = session_factory(cfg.database_url)
+    stg.save_settings(cfg, {"backup_daily": True, "backup_hour": 2, "backup_jobs": False})
+    now = datetime.now(timezone.utc)
+    assert "backup" not in stg.scheduled(cfg, Session, set(), now=_dubai(now, 1))    # before 02:00 Dubai time
+    assert "backup" in stg.scheduled(cfg, Session, set(), now=_dubai(now, 3))
+    assert "backup" not in stg.scheduled(cfg, Session, set(), now=_dubai(now, 5))   # once a day
+
+
+def _dubai(now, hour):
+    from datetime import timezone
+    from zoneinfo import ZoneInfo
+    return now.astimezone(ZoneInfo("Asia/Dubai")).replace(hour=hour, minute=0).astimezone(timezone.utc)

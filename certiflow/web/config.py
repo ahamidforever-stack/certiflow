@@ -27,6 +27,7 @@ class WebConfig:
     login_max_failures: int = field(default_factory=lambda: int(_env("CERTIFLOW_LOGIN_MAX_FAILURES", "5")))
     login_ip_max_failures: int = field(default_factory=lambda: int(_env("CERTIFLOW_LOGIN_IP_MAX_FAILURES", "30")))
     login_lock_minutes: int = field(default_factory=lambda: int(_env("CERTIFLOW_LOGIN_LOCK_MINUTES", "15")))
+    scheduler: bool = field(default_factory=lambda: _env("CERTIFLOW_SCHEDULER", "1") == "1")   # retention + backups
     timezone: str = field(default_factory=lambda: _env("CERTIFLOW_TIMEZONE", "Asia/Dubai"))   # office days
     max_upload_mb: int = field(default_factory=lambda: int(_env("CERTIFLOW_MAX_UPLOAD_MB", "80")))
     static_dir: Path = field(default_factory=lambda: Path(_env("CERTIFLOW_STATIC_DIR", "web/dist")))

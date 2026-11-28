@@ -23,7 +23,7 @@ RUN --mount=type=secret,id=ca,required=false \
       tesseract-ocr tesseract-ocr-ara tesseract-ocr-eng tesseract-ocr-fra tesseract-ocr-deu tesseract-ocr-spa \
       tesseract-ocr-ita tesseract-ocr-por tesseract-ocr-nld tesseract-ocr-tur tesseract-ocr-rus tesseract-ocr-fas \
       tesseract-ocr-urd tesseract-ocr-heb tesseract-ocr-chi-sim tesseract-ocr-jpn tesseract-ocr-kor tesseract-ocr-hin \
-      fonts-liberation fonts-hosny-amiri fonts-noto-core fonts-noto-cjk \
+      fonts-liberation fonts-hosny-amiri fonts-noto-core fonts-noto-cjk postgresql-client-16 \
     && rm -rf /var/lib/apt/lists/* /tmp/build-ca.crt && sed -i 's|https://|http://|g' /etc/apt/sources.list.d/*.sources \
     && python3 -m venv /opt/venv
 RUN useradd --create-home --uid 10001 certiflow

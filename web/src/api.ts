@@ -8,7 +8,7 @@ export interface JobDoc { key: string; title: string; filename: string; source_l
 export interface JobFile { name: string; size: number; kind: string }
 export interface Job { id: string; title: string; created_at: string; status: string; stage: string;
   source_language: string; target_language: string; stamp: string; cost_usd: number; error: string | null;
-  documents_count: number; client?: string | null; documents?: JobDoc[]; files?: JobFile[]; approved_at?: string | null;
+  documents_count: number; client?: string | null; keep?: boolean; purged_at?: string | null; documents?: JobDoc[]; files?: JobFile[]; approved_at?: string | null;
   page_order?: string; document_type?: string | null; notes?: string | null;
   cost_by_agent?: Record<string, { calls: number; cost_usd: number; input_tokens: number; output_tokens: number }> }
 export interface GlossaryItem { source: string; target: string; kind: string; confirmed?: boolean; remembered?: boolean }
@@ -36,6 +36,13 @@ export interface PairAdmin { source: string; target: string; template_id: string
   no_foreign_script: boolean | null; transliteration_standard: string | null; in_defaults: boolean; overridden: boolean }
 export interface LanguageAdmin { languages: LangAdmin[]; pairs: PairAdmin[]; editable: string[]; text_fields: string[];
   templates: { id: string; name: string; language: string | null; pair: string | null }[] }
+export interface StorageSettings { enabled: boolean; released_days: number; unfinished_days: number; backup_daily: boolean;
+  backup_hour: number; backup_keep: number; backup_jobs: boolean }
+export interface StorageView { settings: StorageSettings;
+  usage: { jobs: number; purged: number; kept: number; job_bytes: number; free_bytes: number };
+  candidates: { id: string; title: string; status: string; last_activity: string; rule: string }[];
+  backups: { name: string; size: number; encrypted: boolean; created: string }[];
+  backup_state: { running: boolean; last_error: string | null }; backup_encrypted: boolean; backup_dir: string }
 export interface UsageAgent { agent: string; calls: number; cost_usd: number; input_tokens: number; output_tokens: number; cache_read_tokens: number }
 export interface Usage { days: number; timezone: string; from: string; to: string;
   tiles: { today: number; week: number; month: number };
@@ -96,6 +103,11 @@ export const api = {
   adminResetLanguage: (code: string) => req<LanguageAdmin>("DELETE", `/api/admin/languages/${code}`),
   adminSetPair: (s: string, tg: string, body: Record<string, unknown>) => req<LanguageAdmin>("PUT", `/api/admin/pairs/${s}/${tg}`, body),
   adminResetPair: (s: string, tg: string) => req<LanguageAdmin>("DELETE", `/api/admin/pairs/${s}/${tg}`),
+  adminStorage: () => req<StorageView>("GET", "/api/admin/storage"),
+  adminStorageSettings: (body: Partial<StorageSettings>) => req<StorageView>("PUT", "/api/admin/storage/settings", body),
+  adminRunRetention: () => req<StorageView & { result: { enabled: boolean; purged: string[]; freed: number } }>("POST", "/api/admin/storage/retention/run"),
+  adminCreateBackup: () => req<{ started: boolean }>("POST", "/api/admin/storage/backups"),
+  setKeep: (id: string, keep: boolean) => req<Job>("PUT", `/api/jobs/${id}/keep`, { keep }),
   adminUsage: (days: number) => req<Usage>("GET", `/api/admin/usage?days=${days}`),
   adminEvents: () => req<AdminEvent[]>("GET", "/api/admin/events"),
   sessions: () => req<SessionInfo[]>("GET", "/api/me/sessions"),

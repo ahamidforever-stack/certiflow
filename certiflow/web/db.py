@@ -52,6 +52,8 @@ class Job(Base):
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     pages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)   # source pages (from Intake)
     client: Mapped[Optional[str]] = mapped_column(String(200), nullable=True, index=True)  # for glossary memory
+    keep: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")  # legal hold: never auto-deleted
+    purged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)  # files deleted
     documents: Mapped[list["JobDocument"]] = relationship(back_populates="job", order_by="JobDocument.idx",
                                                           cascade="all, delete-orphan")
 

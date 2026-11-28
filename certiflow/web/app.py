@@ -90,6 +90,10 @@ class AgentSettingsIn(BaseModel):
     max_tokens: int
 
 
+class KeepIn(BaseModel):
+    keep: bool
+
+
 class PasswordIn(BaseModel):
     password: str
 
@@ -139,6 +143,9 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
     set_config(cfg)
     Session = session_factory(cfg.database_url)
     app = FastAPI(title="CertiFlow", docs_url="/api/docs", openapi_url="/api/openapi.json")
+    if cfg.scheduler:
+        from .storage import start_scheduler
+        start_scheduler(cfg, Session, AUDIT_KEYS)
 
     def library() -> AssetLibrary:
         return AssetLibrary(cfg.library)
@@ -591,6 +598,77 @@ def create_app(cfg: WebConfig | None = None) -> FastAPI:
             _log(s, a, "pair_reset", f"{source}>{target}")
             s.commit()
         return {**la.view(), "templates": _templates()}
+
+    # ------------------------------------------------------------------ admin: storage, retention, backups
+
+    def _storage_error(e: Exception):
+        from . import storage as stg
+        if isinstance(e, stg.StorageError):
+            raise HTTPException(422 if "already running" not in str(e) else 409, str(e))
+        raise e
+
+    def _storage_view() -> dict:
+        from . import storage as stg
+        with Session() as s:
+            return {"settings": stg.load_settings(cfg), "usage": stg.usage(cfg, s), "candidates": stg.candidates(s, cfg),
+                    "backups": stg.list_backups(cfg), "backup_state": stg.state(),
+                    "backup_encrypted": stg.backup_key() is not None, "backup_dir": str(stg.backup_dir(cfg))}
+
+    @app.get("/api/admin/storage")
+    def admin_storage(_: User = Depends(admin_user)):
+        return _storage_view()
+
+    @app.put("/api/admin/storage/settings")
+    def admin_storage_settings(body: dict, a: User = Depends(admin_user), _=Depends(csrf)):
+        from . import storage as stg
+        try:
+            _new, changed = stg.save_settings(cfg, body)
+        except Exception as e:  # noqa: BLE001
+            _storage_error(e)
+        if changed:
+            with Session() as s:
+                _log(s, a, "storage_changed", "storage", **changed)
+                s.commit()
+        return _storage_view()
+
+    @app.post("/api/admin/storage/retention/run")
+    def admin_run_retention(a: User = Depends(admin_user), _=Depends(csrf)):
+        from . import storage as stg
+        with Session() as s:
+            res = stg.run_retention(s, cfg, AUDIT_KEYS, by=a.username)
+            if res["purged"]:
+                _log(s, a, "retention_run", "storage", jobs=len(res["purged"]))
+            s.commit()
+        return {**_storage_view(), "result": res}
+
+    @app.post("/api/admin/storage/backups", status_code=202)
+    def admin_create_backup(a: User = Depends(admin_user), _=Depends(csrf)):
+        from . import storage as stg
+        if stg.state()["running"]:
+            raise HTTPException(409, "a backup is already running")
+        st = stg.load_settings(cfg)
+
+        def work():
+            try:
+                stg.create_backup(cfg, include_jobs=st["backup_jobs"])
+            except Exception:  # noqa: BLE001 - shown as backup_state.last_error
+                pass
+        threading.Thread(target=work, name="certiflow-backup", daemon=True).start()
+        with Session() as s:
+            _log(s, a, "backup_started", "storage")
+            s.commit()
+        return {"started": True}
+
+    @app.put("/api/jobs/{job_id}/keep")
+    def set_keep(job_id: str, body: KeepIn, a: User = Depends(admin_user), _=Depends(csrf)):
+        with Session() as s:
+            row = s.get(JobRow, job_id)
+            if row is None:
+                raise HTTPException(404, "no such job")
+            row.keep = body.keep
+            _log(s, a, "job_hold" if body.keep else "job_release_hold", job_id)
+            s.commit()
+            return _job_out(row)
 
     @app.get("/api/admin/usage")
     def admin_usage(days: int = 30, _: User = Depends(admin_user)):
@@ -1236,7 +1314,7 @@ def _job_out(r: JobRow, brief: bool = False) -> dict:
     out = {"id": r.id, "title": r.title, "created_at": r.created_at.isoformat(), "status": r.status,
            "stage": r.stage, "source_language": r.source_language, "target_language": r.target_language,
            "stamp": r.stamp, "cost_usd": r.cost_usd, "error": r.error, "documents_count": len(r.documents),
-           "client": r.client}
+           "client": r.client, "keep": bool(r.keep), "purged_at": r.purged_at.isoformat() if r.purged_at else None}
     if not brief:
         out.update(page_order=r.page_order, document_type=r.document_type, notes=r.notes,
                    approved_at=r.approved_at.isoformat() if r.approved_at else None,

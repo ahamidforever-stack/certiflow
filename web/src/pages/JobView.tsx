@@ -69,8 +69,20 @@ export default function JobView() {
         </div>
       )}
 
-      {job.status === "waiting_glossary" && <GlossaryPanel jobId={job.id} onDone={load} />}
-      {job.status === "waiting_review" && <ReviewPanel job={job} canApprove={isSigner} onDone={load} />}
+      {job.purged_at && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          {t("jbPurged", { date: new Date(job.purged_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) })}
+        </div>
+      )}
+      {user?.role === "admin" && !job.purged_at && (
+        <label className="flex items-center gap-2 text-sm text-slate-700" title={t("jbKeepHint")}>
+          <input type="checkbox" className="h-4 w-4 rounded border-slate-300" checked={!!job.keep}
+            onChange={(e) => api.setKeep(job.id, e.target.checked).then(load)} />
+          {t("jbKeep")} <span className="text-xs text-slate-500">· {t("jbKeepHint")}</span>
+        </label>
+      )}
+      {!job.purged_at && job.status === "waiting_glossary" && <GlossaryPanel jobId={job.id} onDone={load} />}
+      {!job.purged_at && job.status === "waiting_review" && <ReviewPanel job={job} canApprove={isSigner} onDone={load} />}
       {job.files && job.files.length > 0 && <FilesPanel job={job} />}
 
       <div className="grid gap-6 lg:grid-cols-3">

@@ -819,6 +819,139 @@
     }
    }
   },
+  "/api/admin/storage": {
+   "get": {
+    "summary": "Admin Storage",
+    "operationId": "admin_storage_api_admin_storage_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/admin/storage/settings": {
+   "put": {
+    "summary": "Admin Storage Settings",
+    "operationId": "admin_storage_settings_api_admin_storage_settings_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "additionalProperties": true,
+        "type": "object",
+        "title": "Body"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/admin/storage/retention/run": {
+   "post": {
+    "summary": "Admin Run Retention",
+    "operationId": "admin_run_retention_api_admin_storage_retention_run_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/admin/storage/backups": {
+   "post": {
+    "summary": "Admin Create Backup",
+    "operationId": "admin_create_backup_api_admin_storage_backups_post",
+    "responses": {
+     "202": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/jobs/{job_id}/keep": {
+   "put": {
+    "summary": "Set Keep",
+    "operationId": "set_keep_api_jobs__job_id__keep_put",
+    "parameters": [
+     {
+      "name": "job_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Job Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/KeepIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/admin/usage": {
    "get": {
     "summary": "Admin Usage",
@@ -2413,6 +2546,19 @@
     },
     "type": "object",
     "title": "HTTPValidationError"
+   },
+   "KeepIn": {
+    "properties": {
+     "keep": {
+      "type": "boolean",
+      "title": "Keep"
+     }
+    },
+    "type": "object",
+    "required": [
+     "keep"
+    ],
+    "title": "KeepIn"
    },
    "LoginIn": {
     "properties": {

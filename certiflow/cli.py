@@ -283,6 +283,37 @@ def cmd_web(args) -> int:
             s.commit()
         print(f"user {args.username.lower()} saved ({args.role})")
         return 0
+    if args.action == "backup":
+        from .web.storage import create_backup
+        e = create_backup(cfg, include_jobs=not args.no_jobs)
+        print(f"backup written: {e['name']} ({e['size'] / 1e6:.1f} MB, {'encrypted' if e['encrypted'] else 'NOT encrypted'})")
+        return 0
+    if args.action == "decrypt-backup":
+        import os
+        from .web.storage import StorageError, decrypt_stream
+        key = os.environ.get("CERTIFLOW_BACKUP_KEY") or getpass.getpass("Backup key: ")
+        if not args.file:
+            sys.exit("give the backup with --file")
+        src = Path(args.file)
+        out = Path(args.out or src.with_suffix(""))
+        try:
+            with open(src, "rb") as f, open(out, "wb") as g:
+                decrypt_stream(f, g, key)
+        except StorageError as e:
+            out.unlink(missing_ok=True)
+            sys.exit(f"cannot decrypt: {e}")
+        print("decrypted:", out)
+        return 0
+    if args.action == "purge":
+        from .web.app import AUDIT_KEYS
+        from .web.db import session_factory
+        from .web.storage import run_retention
+        with session_factory(cfg.database_url)() as s:
+            r = run_retention(s, cfg, AUDIT_KEYS, by="cli")
+            s.commit()
+        print("retention is off (switch it on in Admin -> Storage)" if not r["enabled"] else
+              f"files of {len(r['purged'])} jobs deleted, {r['freed'] / 1e6:.1f} MB freed")
+        return 0
     if args.action == "serve":
         import uvicorn
         from .web.app import create_app
@@ -391,13 +422,16 @@ def main(argv=None) -> int:
     jb.set_defaults(fn=cmd_job)
 
     wb = sub.add_parser("web", help="web app: init-db / create-user / serve")
-    wb.add_argument("action", choices=["init-db", "create-user", "serve"])
+    wb.add_argument("action", choices=["init-db", "create-user", "serve", "backup", "decrypt-backup", "purge"])
     wb.add_argument("username", nargs="?")
     wb.add_argument("--role", default="certified_translator")
     wb.add_argument("--name")
     wb.add_argument("--password", help="omit to be prompted (recommended)")
     wb.add_argument("--host", default="127.0.0.1")
     wb.add_argument("--port", type=int, default=8000)
+    wb.add_argument("--no-jobs", action="store_true", help="backup: leave out the job folders")
+    wb.add_argument("--file", help="decrypt-backup: the .enc file")
+    wb.add_argument("--out", help="decrypt-backup: where to write the .tar.gz")
     wb.set_defaults(fn=cmd_web)
 
     sc = sub.add_parser("schema")

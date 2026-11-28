@@ -28,6 +28,7 @@ web = [
   "alembic>=1.13",
   "celery[redis]>=5.4",
   "psycopg[binary]>=3.2",
+  "cryptography>=43",
   "langgraph-checkpoint-postgres>=3.0",
 ]
 
