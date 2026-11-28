@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, lazy, Suspense, useContext, useEffect, useState } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes } from "react-router-dom";
 import { Building2, Coins, HardDrive, Languages as LanguagesIcon, Sparkles, Stamp, Users as UsersIcon } from "lucide-react";
 import { api, type User } from "./api";
@@ -9,20 +9,26 @@ import { JobsProvider } from "./lib/useJobs";
 import { cn } from "./lib/cn";
 import Login from "./pages/Login";
 import Home from "./pages/Home";
-import Jobs from "./pages/Jobs";
-import NewJob from "./pages/NewJob";
-import JobView from "./pages/JobView";
-import Review from "./pages/Review";
-import Audit from "./pages/Audit";
-import Account from "./pages/Account";
-import Users from "./pages/Users";
-import Usage from "./pages/Usage";
-import Assets from "./pages/Assets";
-import Glossaries from "./pages/Glossaries";
-import Models from "./pages/Models";
-import Languages from "./pages/Languages";
-import Storage from "./pages/Storage";
-import Clients from "./pages/Clients";
+
+// Pages load on first visit (code splitting): the first screen stays small.
+const Jobs = lazy(() => import("./pages/Jobs"));
+const NewJob = lazy(() => import("./pages/NewJob"));
+const JobView = lazy(() => import("./pages/JobView"));
+const Review = lazy(() => import("./pages/Review"));
+const Audit = lazy(() => import("./pages/Audit"));
+const Account = lazy(() => import("./pages/Account"));
+const Users = lazy(() => import("./pages/Users"));
+const Usage = lazy(() => import("./pages/Usage"));
+const Assets = lazy(() => import("./pages/Assets"));
+const Glossaries = lazy(() => import("./pages/Glossaries"));
+const Models = lazy(() => import("./pages/Models"));
+const Languages = lazy(() => import("./pages/Languages"));
+const Storage = lazy(() => import("./pages/Storage"));
+const Clients = lazy(() => import("./pages/Clients"));
+
+function PageLoading() {
+  return <div className="space-y-3 pt-2" aria-busy="true"><div className="skeleton h-7 w-56" /><div className="skeleton h-4 w-80" /><div className="skeleton mt-6 h-48 rounded-xl" /></div>;
+}
 
 const AuthCtx = createContext<{ user: User | null; setUser: (u: User | null) => void }>({ user: null, setUser: () => {} });
 export const useAuth = () => useContext(AuthCtx);
@@ -41,6 +47,7 @@ export default function App() {
       {user ? (
         <JobsProvider key={user.id}>
           <AppShell>
+            <Suspense fallback={<PageLoading />}>
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/jobs" element={<Jobs />} />
@@ -64,6 +71,7 @@ export default function App() {
               )}
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
+            </Suspense>
           </AppShell>
         </JobsProvider>
       ) : (
@@ -99,7 +107,7 @@ function AdminLayout() {
             </NavLink>
           ))}
         </nav>
-        <div className="min-w-0 flex-1"><Outlet /></div>
+        <div className="min-w-0 flex-1"><Suspense fallback={<PageLoading />}><Outlet /></Suspense></div>
       </div>
     </div>
   );
