@@ -74,7 +74,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <button className="icon-btn ms-auto" aria-label={t("navSearch")} onClick={() => setCmd(true)}><Search className="h-5 w-5" /></button>
             <Link to="/new" className="icon-btn bg-brand-600 text-white hover:bg-brand-700 hover:text-white" aria-label={t("newJob")}><Plus className="h-5 w-5" /></Link>
           </header>
-          <main id="main" className={cn("flex-1", inEditor ? "px-3 py-3 lg:px-4" : "mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10")}>
+          <main id="main" className={cn("flex-1", inEditor ? "min-w-0" : "mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10")}>
             {children}
           </main>
         </div>

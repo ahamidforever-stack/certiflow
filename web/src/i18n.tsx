@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { shellAr, shellEn } from "./i18n.shell";
+import { editorAr, editorEn } from "./i18n.editor";
 
 // Interface languages. To add one: copy the `en` block, translate it, and add the code to LANGS.
 const en = {
@@ -370,9 +371,9 @@ const ar: Messages = {
   language: "English",
 };
 
-const LANGS = { en: { ...en, ...shellEn }, ar: { ...ar, ...shellAr } } as const;
+const LANGS = { en: { ...en, ...shellEn, ...editorEn }, ar: { ...ar, ...shellAr, ...editorAr } } as const;
 export type UiLang = keyof typeof LANGS;
-export type MsgKey = keyof Messages | keyof typeof shellEn;
+export type MsgKey = keyof Messages | keyof typeof shellEn | keyof typeof editorEn;
 
 interface Ctx { lang: UiLang; dir: "ltr" | "rtl"; t: (k: MsgKey | string, vars?: Record<string, string | number>) => string; setLang: (l: UiLang) => void }
 const I18n = createContext<Ctx | null>(null);
