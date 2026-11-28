@@ -780,7 +780,7 @@ def test_model_settings_overlay_the_defaults(web):
     tr = v["agents"]["translator"]
     assert tr["overridden"] == [] and "v1" in tr["prompt_versions"] and "v2" in v["agents"]["intake"]["prompt_versions"]
     other = next(m["model"] for m in v["models"] if m["model"] != tr["model"])
-    body = {"model": other, "effort": "medium", "prompt_version": "v1", "max_tokens": tr["max_tokens"]}
+    body = {"model": other, "effort": "medium", "prompt_version": tr["prompt_version"], "max_tokens": tr["max_tokens"]}
     v = a.put("/api/admin/settings/agents/translator", json=body, headers=H).json()
     assert v["agents"]["translator"]["model"] == other and v["agents"]["translator"]["overridden"] == ["effort", "model"]
     assert load().agent("translator").model == other                 # new pipeline steps use it at once

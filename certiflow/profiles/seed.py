@@ -15,6 +15,13 @@ LEGAL = ("Use a formal legal register. Translate faithfully and completely; neve
          "numbers as written in the source unless the job asks to localise them.")
 
 
+# Office house style, taken from the approved EN>AR golden translations (02_treatment_records).
+AR_MEASURES = ("Measurements: keep the number exactly as written and write the unit in Arabic: mg ملغ, ml مل, "
+               "g غرام, mcg ميكروغرام, mmHg ملم زئبق, bpm نبضة/دقيقة, breaths/min نفساً/دقيقة, min دقيقة. "
+               "A 24-hour clock time written as four digits (1909H, 1909hrs) is written 19:09 ساعة; a time that "
+               "already has a separator keeps it as written (18.20 H is 18.20 ساعة, 19:05 is 19:05 ساعة).")
+
+
 def L(ill, cov, tru, rep):
     return {"unreadable_illegible": ill, "unreadable_covered_by_stamp": cov,
             "unreadable_truncated": tru, "repeated_notes_heading": rep}
@@ -35,7 +42,7 @@ P = [
          "Do not leave any Latin-script text next to the Arabic except identifiers. Describe stamps as "
          "// ختم ... // , seals as // خاتم ... // , signatures as // توقيع // , handwriting as // بخط اليد: ... // . "
          "Use common legal formulae: «حرر في» for 'done at', «صورة طبق الأصل» for 'true copy', «الموقع أدناه» for "
-         "'the undersigned'.",
+         "'the undersigned'. " + AR_MEASURES,
          labels=L("// غير مقروء //", "// غير واضح بسبب الختم //", "// النص مبتور في الأصل //", "الأختام والتواقيع الواردة في جميع الصفحات")),
     dict(code="en", display_name="English", native_name="English", script="Latn", direction="ltr", word_tag="en-GB",
          font_slot="ascii", word_font=LATIN_FONT[0], pdf_font=LATIN_FONT[1], body_size_pt=12,

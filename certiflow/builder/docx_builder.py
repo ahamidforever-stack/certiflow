@@ -317,11 +317,36 @@ def _default_widths(b: Block, ncols: int) -> list[float]:
     return [1.0] * ncols
 
 
+def _balanced_widths(b: Block, rel: list[float], ncols: int) -> list[float]:
+    """Guard against a lopsided reading of the layout: when one column of a plain table holds most of its
+    text (>= 70%) but was given a narrow share (< 30%), long text would run down a thin strip over many
+    pages. Give that column 70% of the width and share the rest by the other columns' original proportions.
+    Label/value tables (kv_table) are left alone: their label columns are narrow on purpose."""
+    if b.type != BlockType.table or len(rel) != ncols or ncols < 2:
+        return rel
+    chars = [0] * ncols
+    for r in b.rows:
+        col = 0
+        for c in r.cells:
+            if c.colspan == 1 and col < ncols:
+                chars[col] += len(c.translated_text or c.source_text)
+            col += c.colspan
+    total, tot_w = sum(chars), sum(rel)
+    if total < 400 or not tot_w:
+        return rel
+    big = max(range(ncols), key=chars.__getitem__)
+    if chars[big] / total < 0.7 or rel[big] / tot_w >= 0.3:
+        return rel
+    rest = tot_w - rel[big]
+    return [0.7 * tot_w if i == big else 0.3 * tot_w * (w / rest if rest else 1 / (ncols - 1))
+            for i, w in enumerate(rel)]
+
+
 def _render_table(body, ctx: _Ctx, b: Block):
     h = ctx.h
     pdir = _block_dir(ctx, b)
     ncols = max(sum(c.colspan for c in r.cells) for r in b.rows)
-    rel = b.column_widths or _default_widths(b, ncols)
+    rel = _balanced_widths(b, b.column_widths or _default_widths(b, ncols), ncols)
     tot = sum(rel)
     widths = [int(ctx.width * w / tot) for w in rel]
     widths[-1] += ctx.width - sum(widths) if abs(ctx.width - sum(widths)) < 10 else 0
@@ -349,7 +374,7 @@ def _render_table(body, ctx: _Ctx, b: Block):
     for row in b.rows:
         tr = _el("w:tr")
         trpr = _el("w:trPr")
-        trpr.append(_el("w:cantSplit"))
+        trpr.append(_el("w:cantSplit"))  # house layout: rows never break (the approved rebuild depends on it)
         if row.header:
             trpr.append(_el("w:tblHeader"))
         tr.append(trpr)
